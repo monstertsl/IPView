@@ -5,6 +5,7 @@ from sqlalchemy.dialects.postgresql import UUID, INET
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy import ForeignKey
 import enum
+from app.core.database import Base
 
 
 class IPStatus(str, enum.Enum):

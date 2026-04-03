@@ -20,6 +20,6 @@ async def get_db() -> AsyncSession:
 
 
 async def init_db():
-    from app.models import user, switch, ip_record, scan_task, log  # noqa
+    from app.models import user, switch, ip, scan, log  # noqa
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)

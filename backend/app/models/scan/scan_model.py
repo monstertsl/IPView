@@ -1,4 +1,5 @@
 import uuid
+from app.core.database import Base
 from datetime import datetime
 from sqlalchemy import String, DateTime, Integer, Text, Enum as SAEnum
 from sqlalchemy.dialects.postgresql import UUID, JSONB
