@@ -1,29 +1,48 @@
 <template>
   <div class="ip-manage">
-    <n-grid :cols="5" :x-gap="16" :y-gap="16" v-if="selectedSubnet">
+    <n-grid :cols="24" :x-gap="16" :y-gap="16" align-items="start" v-if="selectedSubnet">
       <!-- Left: Subnet list -->
-      <n-gi :span="1">
-        <n-card title="网段列表" size="small" :bordered="false">
+      <n-gi :span="4">
+        <n-card title="网段列表" size="small" :bordered="false" class="subnet-list-card">
           <template #header-extra>
             <n-button text @click="showAddSubnet = true"><n-icon><add-outline /></n-icon></n-button>
           </template>
-          <n-list hoverable clickable>
-            <n-list-item
-              v-for="sub in subnets"
-              :key="sub.id"
-              :style="{ background: selectedSubnet?.id === sub.id ? 'rgba(24,160,88,0.15)' : '' }"
-              @click="selectSubnet(sub)"
-            >
-              <n-thing :title="sub.cidr" :description="sub.description" />
-            </n-list-item>
-          </n-list>
+          <n-scrollbar style="max-height: calc(100vh - 180px);">
+            <n-list hoverable clickable>
+              <n-list-item
+                v-for="sub in subnets"
+                :key="sub.id"
+                :style="{ background: selectedSubnet?.id === sub.id ? 'rgba(24,160,88,0.15)' : '' }"
+                @click="selectSubnet(sub)"
+              >
+                <n-thing :title="sub.cidr" :description="sub.description" />
+              </n-list-item>
+            </n-list>
+          </n-scrollbar>
         </n-card>
       </n-gi>
 
       <!-- Right: IP grid + stats -->
-      <n-gi :span="4">
-        <!-- Stats row -->
-        <n-grid :cols="4" :x-gap="12" style="margin-bottom: 12px">
+      <n-gi :span="20">
+        <!-- Search -->
+        <n-space style="margin-bottom: 12px">
+          <n-input v-model:value="searchQ" placeholder="搜索 IP / MAC / 网段" clearable style="width: 300px" @keyup.enter="handleSearch">
+            <template #prefix><n-icon><search-outline /></n-icon></template>
+          </n-input>
+          <n-button type="primary" @click="handleSearch">搜索</n-button>
+        </n-space>
+
+        <!-- Subnet title + Stats -->
+        <n-grid :cols="5" :x-gap="12" style="margin-bottom: 12px; align-items: end;">
+          <n-gi>
+            <n-statistic label="网段" style="--n-label-font-size: 14px;">
+              <template #default>
+                <n-tag size="large" type="primary" style="font-size: 24px; font-weight: 600; padding: 4px 12px;">
+                  {{ selectedSubnet?.cidr }}
+                </n-tag>
+              </template>
+            </n-statistic>
+          </n-gi>
           <n-gi><n-statistic label="在线 (ONLINE)" :value="bulkData.online">
             <template #suffix><n-tag type="success" size="small">使用中</n-tag></template>
           </n-statistic></n-gi>
@@ -36,20 +55,12 @@
           <n-gi><n-statistic label="总计" :value="bulkData.total" /></n-gi>
         </n-grid>
 
-        <!-- Search -->
-        <n-space style="margin-bottom: 12px">
-          <n-input v-model:value="searchQ" placeholder="搜索 IP / MAC / 网段" clearable style="width: 300px" @keyup.enter="handleSearch">
-            <template #prefix><n-icon><search-outline /></n-icon></template>
-          </n-input>
-          <n-button type="primary" @click="handleSearch">搜索</n-button>
-        </n-space>
-
         <!-- IP Grid -->
         <n-card :bordered="false" size="small">
           <div class="ip-grid" v-if="!searchResult">
             <div
               v-for="ip in paginatedIPs"
-              :key="ip.id"
+              :key="ip.ip_address"
               class="ip-cell"
               :class="ip.status?.toLowerCase() || 'unused'"
               :style="{ gridColumn: `span 1` }"
@@ -61,22 +72,18 @@
           </div>
           <!-- Search result table -->
           <n-data-table v-else :columns="searchResultColumns" :data="searchResult" :bordered="false" size="small" />
-          <!-- Pagination -->
-          <n-pagination
-            v-if="!searchResult && bulkData.total > 0"
-            style="margin-top: 12px; justify-content: center"
-            v-model:page="page"
-            :page-size="pageSize"
-            :page-sizes="[50, 100, 200]"
-            :page-count="pageCount"
-            @update:page="onPageChange"
-          />
         </n-card>
       </n-gi>
     </n-grid>
 
     <!-- No subnet selected -->
-    <n-empty v-else description="请从左侧选择一个网段" style="margin-top: 100px" />
+    <div v-else style="margin-top: 100px; text-align: center">
+      <n-empty description="暂无网段，请先添加一个网段" />
+      <n-button type="primary" style="margin-top: 16px" @click="showAddSubnet = true">
+        <template #icon><n-icon><add-outline /></n-icon></template>
+        添加网段
+      </n-button>
+    </div>
 
     <!-- Add subnet modal -->
     <n-modal v-model:show="showAddSubnet" preset="card" title="添加网段" style="width: 500px">
@@ -138,7 +145,7 @@ const searchResultColumns = [
 
 // Pagination
 const page = ref(1)
-const pageSize = ref(200)
+const pageSize = ref(256)
 const pageCount = computed(() => Math.ceil(bulkData.value.total / pageSize.value))
 const paginatedIPs = computed(() => bulkData.value.records.slice((page.value - 1) * pageSize.value, page.value * pageSize.value))
 
@@ -169,10 +176,12 @@ async function loadSubnets() {
 async function selectSubnet(sub: IPSubnet) {
   selectedSubnet.value = sub
   searchResult.value = null
-  page.value = 1
+  tooltipCache.value = {}  // clear cache on subnet switch
   try {
     const res = await api.get<IPBulkResponse>(`/ip/subnets/${sub.id}/ips`)
     bulkData.value = res.data
+    // Prefetch tooltip data in background after subnet loads
+    prefetchTooltips(res.data.records)
   } catch (e) { message.error('加载 IP 数据失败') }
 }
 
@@ -195,8 +204,18 @@ async function handleSearch() {
     const res = await api.get('/ip/search', { params: { q: searchQ.value } })
     if (res.data.type === 'ip') {
       searchResult.value = [res.data.record]
-    } else if (res.data.type === 'mac' || res.data.type === 'subnet') {
+    } else if (res.data.type === 'mac') {
       searchResult.value = res.data.records
+    } else if (res.data.type === 'subnet') {
+      // Find and switch to the subnet
+      const targetSubnet = subnets.value.find(s => s.id === res.data.subnet_id)
+      if (targetSubnet) {
+        await selectSubnet(targetSubnet)
+        searchResult.value = null
+        message.success(`已切换到网段: ${targetSubnet.cidr}`)
+      } else {
+        message.error('网段未找到')
+      }
     } else {
       searchResult.value = []
       message.info('未找到结果')
@@ -204,24 +223,42 @@ async function handleSearch() {
   } catch (e) { message.error('搜索失败') }
 }
 
-async function showTooltip(ip: IPRecord, event: MouseEvent) {
+// Tooltip cache: ip_address → { history, last_seen, ... }
+const tooltipCache = ref<Record<string, IPTooltipData>>({})
+
+// Prefetch tooltip data for all IPs in the current subnet (fire and forget)
+async function prefetchTooltips(records: IPRecord[]) {
+  // Only prefetch IPs that have been seen (have MAC) to save requests
+  const active = records.filter(r => r.mac_address)
+  for (const ip of active) {
+    if (tooltipCache.value[ip.ip_address]) continue
+    try {
+      const res = await api.get<IPTooltipData>(`/ip/ip/${ip.ip_address}/tooltip`)
+      tooltipCache.value[ip.ip_address] = res.data
+    } catch { /* ignore */ }
+  }
+}
+
+function showTooltip(ip: IPRecord, event: MouseEvent) {
   tooltipIP.value = ip
   tooltipStyle.top = (event.clientY + 10) + 'px'
   tooltipStyle.left = (event.clientX + 10) + 'px'
   tooltipVisible.value = true
-  try {
-    const res = await api.get<IPTooltipData>(`/ip/ip/${ip.ip_address}/tooltip`)
-    tooltipHistory.value = res.data.history.map((h, i) => ({
+  // Use cached data if available, no request on hover
+  const cached = tooltipCache.value[ip.ip_address]
+  if (cached) {
+    tooltipHistory.value = cached.history.map((h: any, i: number) => ({
       mac: h.mac_address,
       isCurrent: i === 0
     }))
-  } catch { /* ignore */ }
+  } else {
+    tooltipHistory.value = []
+  }
 }
 
 function hideTooltip() { tooltipVisible.value = false }
 function statusType(s?: string) { return s === 'ONLINE' ? 'success' : s === 'OFFLINE' ? 'warning' : 'default' }
 function formatTime(t?: string) { return t ? new Date(t).toLocaleString('zh-CN') : '无记录' }
-function onPageChange(p: number) { page.value = p }
 </script>
 
 <style scoped>
@@ -244,6 +281,13 @@ function onPageChange(p: number) { page.value = p }
 .ip-cell.online { background: rgba(24,160,88,0.7); color: #fff; }
 .ip-cell.offline { background: rgba(250,173,20,0.7); color: #fff; }
 .ip-cell.unused { background: rgba(255,255,255,0.05); color: rgba(255,255,255,0.3); }
+
+/* 浅色模式下的未使用IP样式 */
+html:not(.dark) .ip-cell.unused { 
+  background: rgba(0,0,0,0.05); 
+  color: rgba(0,0,0,0.3); 
+}
+
 .ip-cell:hover { transform: scale(1.1); box-shadow: 0 2px 8px rgba(0,0,0,0.3); }
 .ip-text { overflow: hidden; text-overflow: ellipsis; }
 .ip-tooltip {
@@ -257,7 +301,162 @@ function onPageChange(p: number) { page.value = p }
   box-shadow: 0 4px 20px rgba(0,0,0,0.5);
   pointer-events: none;
 }
+
+/* 浅色模式下的tooltip样式 */
+html:not(.dark) .ip-tooltip {
+  background: rgba(255,255,255,0.98);
+  border: 1px solid #e5e7eb;
+  color: #1f2937;
+}
+
 .tooltip-title { font-weight: 700; margin-bottom: 4px; }
 .tooltip-row { font-size: 12px; margin: 2px 0; }
 .tooltip-divider { font-size: 11px; margin-top: 6px; color: rgba(255,255,255,0.5); }
+
+html:not(.dark) .tooltip-divider { 
+  color: rgba(0,0,0,0.5); 
+}
+
+/* 卡片样式 */
+:deep(.n-card) {
+  --n-color: #1a1f2e;
+  --n-border-color: transparent;
+  --n-title-text-color: #fff;
+}
+
+html:not(.dark) :deep(.n-card) {
+  --n-color: #ffffff;
+  --n-border-color: #e5e7eb;
+  --n-title-text-color: #1f2937;
+}
+
+/* 统计数字样式 */
+:deep(.n-statistic) {
+  --n-label-text-color: #a0aec0;
+  --n-value-text-color: #fff;
+}
+
+html:not(.dark) :deep(.n-statistic) {
+  --n-label-text-color: #6b7280;
+  --n-value-text-color: #1f2937;
+}
+
+/* 列表样式 */
+:deep(.n-list) {
+  --n-color: transparent;
+  --n-text-color: #fff;
+}
+
+html:not(.dark) :deep(.n-list) {
+  --n-color: transparent;
+  --n-text-color: #1f2937;
+}
+
+:deep(.n-thing-main__description) {
+  color: #a0aec0;
+}
+
+html:not(.dark) :deep(.n-thing-main__description) {
+  color: #6b7280;
+}
+
+/* 输入框样式 */
+:deep(.n-input) {
+  --n-color: #242b3d;
+  --n-color-focus: #242b3d;
+  --n-border: 1px solid #3a4459;
+  --n-border-hover: 1px solid #10b981;
+  --n-border-focus: 1px solid #10b981;
+  --n-text-color: #fff;
+  --n-placeholder-color: #64748b;
+}
+
+html:not(.dark) :deep(.n-input) {
+  --n-color: #ffffff;
+  --n-color-focus: #ffffff;
+  --n-border: 1px solid #e5e7eb;
+  --n-border-hover: 1px solid #10b981;
+  --n-border-focus: 1px solid #10b981;
+  --n-text-color: #1f2937;
+  --n-placeholder-color: #9ca3af;
+}
+
+:deep(.n-button--primary-type) {
+  --n-color: #10b981;
+  --n-color-hover: #059669;
+  --n-color-pressed: #047857;
+}
+
+/* 表格样式 */
+:deep(.n-data-table) {
+  --n-th-color: #242b3d;
+  --n-td-color: #1a1f2e;
+  --n-border-color: #3a4459;
+  --n-th-text-color: #a0aec0;
+  --n-td-text-color: #fff;
+}
+
+html:not(.dark) :deep(.n-data-table) {
+  --n-th-color: #f8fafc;
+  --n-td-color: #ffffff;
+  --n-border-color: #e5e7eb;
+  --n-th-text-color: #6b7280;
+  --n-td-text-color: #1f2937;
+}
+
+/* 分页样式 */
+:deep(.n-pagination) {
+  --n-item-color: transparent;
+  --n-item-color-hover: rgba(16, 185, 129, 0.1);
+  --n-item-color-active: #10b981;
+  --n-item-text-color: #a0aec0;
+  --n-item-text-color-active: #fff;
+  --n-item-border-color: #3a4459;
+}
+
+html:not(.dark) :deep(.n-pagination) {
+  --n-item-color: transparent;
+  --n-item-color-hover: rgba(16, 185, 129, 0.1);
+  --n-item-color-active: #10b981;
+  --n-item-text-color: #6b7280;
+  --n-item-text-color-active: #fff;
+  --n-item-border-color: #e5e7eb;
+}
+
+/* 弹窗样式 */
+:deep(.n-modal .n-card) {
+  --n-color: #242b3d;
+  --n-title-text-color: #fff;
+  --n-close-icon-color: #a0aec0;
+  --n-border-color: #3a4459;
+}
+
+html:not(.dark) :deep(.n-modal .n-card) {
+  --n-color: #ffffff;
+  --n-title-text-color: #1f2937;
+  --n-close-icon-color: #6b7280;
+  --n-border-color: #e5e7eb;
+}
+
+:deep(.n-form-item .n-form-item-label) {
+  --n-label-text-color: #a0aec0;
+}
+
+html:not(.dark) :deep(.n-form-item .n-form-item-label) {
+  --n-label-text-color: #6b7280;
+}
+
+/* 网段列表卡片 */
+.subnet-list-card :deep(.n-card__content) {
+  padding: 0 8px 12px 8px;
+}
+
+.subnet-list-card :deep(.n-thing-main__header) {
+  font-size: 13px;
+}
+
+.subnet-list-card :deep(.n-list-item) {
+  padding-left: 8px;
+  padding-right: 8px;
+}
 </style>

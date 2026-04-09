@@ -45,8 +45,9 @@ async def get_switch(switch_id: str, db: AsyncSession = Depends(get_db), current
 
 @router.post("", response_model=SwitchResponse, status_code=status.HTTP_201_CREATED)
 async def create_switch(body: SwitchCreate, db: AsyncSession = Depends(get_db), current_user=Depends(require_role("admin"))):
-    # Check duplicate IP
-    result = await db.execute(select(Switch).where(Switch.ip == body.ip))
+    # Check duplicate IP - 使用 cast 将 INET 类型转换为文本进行比较
+    from sqlalchemy import cast, Text
+    result = await db.execute(select(Switch).where(cast(Switch.ip, Text) == body.ip))
     if result.scalar_one_or_none():
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Switch with this IP already exists")
 
@@ -101,3 +102,29 @@ async def delete_switch(switch_id: str, db: AsyncSession = Depends(get_db), curr
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Switch not found")
     await db.delete(s)
     await db.commit()
+
+
+@router.post("/test")
+async def test_switch_connection(body: SwitchCreate, current_user=Depends(require_role("admin"))):
+    """Test SNMP connection to a switch using OID .1.3.6.1.2.1.1.1.0 (sysDescr)."""
+    from app.services.snmp import SNMPScanner
+    from app.core.config import settings
+
+    snmp_config = None
+    if body.snmp_v3_config:
+        snmp_config = body.snmp_v3_config.model_dump()
+
+    scanner = SNMPScanner(
+        host=body.ip,
+        snmp_version=body.snmp_version.value if hasattr(body.snmp_version, 'value') else body.snmp_version,
+        community=body.community,
+        snmp_v3_config=snmp_config,
+        timeout=settings.SNMP_TIMEOUT,
+        retry=settings.SNMP_RETRY,
+    )
+
+    try:
+        sys_descr = await scanner.get_sys_descr()
+        return {"success": True, "message": sys_descr}
+    except Exception as e:
+        return {"success": False, "message": str(e)}

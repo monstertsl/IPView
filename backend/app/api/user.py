@@ -11,7 +11,7 @@ from app.core.auth import (
 from app.core.security import encrypt_data, decrypt_data
 from app.models.user.user_model import User, AuthMode
 from app.schemas.user import (
-    UserCreate, UserUpdate, UserResponse, UserPasswordUpdate,
+    UserCreate, UserUpdate, UserResponse, UserPasswordUpdate, AdminPasswordReset,
     TOTPEnableResponse, TOTPVerifyRequest
 )
 
@@ -56,12 +56,29 @@ async def create_user(body: UserCreate, db: AsyncSession = Depends(get_db), curr
     result = await db.execute(select(User).where(User.username == body.username))
     if result.scalar_one_or_none():
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Username already exists")
+    
+    # 根据认证模式处理密码
+    if body.auth_mode == AuthMode.TOTP_ONLY:
+        # 仅 TOTP 模式：生成随机密码哈希（不会使用）
+        import secrets
+        password_hash = hash_password(secrets.token_hex(32))
+    else:
+        if not body.password:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Password required for this auth mode")
+        password_hash = hash_password(body.password)
+    
     user = User(
         username=body.username,
-        password_hash=hash_password(body.password),
+        password_hash=password_hash,
         role=body.role,
         auth_mode=body.auth_mode,
     )
+    
+    # 如果是 TOTP 相关模式，自动生成 TOTP 密钥
+    if body.auth_mode in (AuthMode.TOTP_ONLY, AuthMode.PASSWORD_AND_TOTP):
+        secret = generate_totp_secret()
+        user.totp_secret_encrypted = encrypt_data(secret)
+    
     db.add(user)
     await db.commit()
     await db.refresh(user)
@@ -160,3 +177,33 @@ async def get_totp_secret(user_id: str, db: AsyncSession = Depends(get_db), curr
     secret = decrypt_data(user.totp_secret_encrypted)
     uri = get_totp_uri(secret, user.username)
     return {"secret": secret, "uri": uri}
+
+
+@router.put("/{user_id}/password/reset")
+async def admin_reset_password(user_id: str, body: AdminPasswordReset, db: AsyncSession = Depends(get_db), current_user=Depends(require_role("admin"))):
+    """Admin can directly reset user's password without knowing the old password."""
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+    user.password_hash = hash_password(body.new_password)
+    await db.commit()
+    return {"message": "密码已重置"}
+
+
+@router.post("/{user_id}/totp/reset", response_model=TOTPEnableResponse)
+async def reset_totp(user_id: str, db: AsyncSession = Depends(get_db), current_user=Depends(require_role("admin"))):
+    """Admin can reset user's TOTP secret — generates a new key and discards the old one."""
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+    secret = generate_totp_secret()
+    user.totp_secret_encrypted = encrypt_data(secret)
+    if user.auth_mode == AuthMode.PASSWORD_ONLY:
+        user.auth_mode = AuthMode.PASSWORD_AND_TOTP
+    await db.commit()
+
+    uri = get_totp_uri(secret, user.username)
+    return TOTPEnableResponse(secret=secret, uri=uri, qr_image=uri)

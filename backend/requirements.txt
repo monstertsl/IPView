@@ -7,10 +7,14 @@ redis==5.0.1
 celery==5.3.6
 python-jose[cryptography]==3.3.0
 passlib[bcrypt]==1.7.4
+bcrypt==3.2.2
 pyotp==2.9.0
 pysnmp==6.1.4
+pyasn1>=0.4.8
+pysmi>=0.3.4
 pydantic==2.6.1
 pydantic-settings==2.1.0
 python-multipart==0.0.9
 email-validator==2.1.0.post1
 httpx==0.26.0
+cryptography>=42.0.0

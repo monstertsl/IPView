@@ -17,8 +17,13 @@ api.interceptors.response.use(
   res => res,
   async error => {
     if (error.response?.status === 401) {
-      localStorage.removeItem('access_token')
-      window.location.href = '/login'
+      const token = localStorage.getItem('access_token')
+      if (token) {
+        // Token 过期/失效，清理并跳转登录
+        localStorage.removeItem('access_token')
+        window.location.href = '/login'
+      }
+      // 无 token（如登录请求的 401）不跳转，让调用方 catch 处理
     }
     return Promise.reject(error)
   }

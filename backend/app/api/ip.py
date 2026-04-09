@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, update, delete, and_, func, text
+from sqlalchemy import select, update, delete, and_, func, text, cast
 from typing import List, Optional
 import ipaddress
 from datetime import datetime, timezone, timedelta
@@ -11,6 +11,7 @@ from app.core.redis import RedisSession
 from app.core.config import settings
 from app.models.ip.ip_model import IPSubnet, IPRecord, IPEvent, IPStatus, IPEventType
 from app.models.system.system_model import SystemConfig
+from sqlalchemy.dialects.postgresql import INET, CIDR
 from app.schemas.ip import (
     IPSubnetCreate, IPSubnetResponse,
     IPRecordResponse, IPHistoryResponse, IPBulkResponse, IPTooltipData
@@ -48,7 +49,7 @@ async def _get_status(last_seen: Optional[datetime], db: AsyncSession) -> IPStat
 
 def _iprecord_to_response(r: IPRecord) -> IPRecordResponse:
     return IPRecordResponse(
-        id=str(r.id), ip_address=str(r.ip_address),
+        id=str(r.id), ip_address=str(r.ip_address).split('/')[0],
         mac_address=r.mac_address, last_seen=r.last_seen,
         status=r.status, created_at=r.created_at, updated_at=r.updated_at,
     )
@@ -74,10 +75,10 @@ async def create_subnet(body: IPSubnetCreate, db: AsyncSession = Depends(get_db)
     await db.commit()
     await db.refresh(subnet)
 
-    # Pre-populate IP records for this subnet
+    # Pre-populate IP records for this subnet (include all 0-255 addresses)
     network = ipaddress.ip_network(subnet.cidr, strict=False)
     batch = []
-    for ip in network.hosts():
+    for ip in network:
         batch.append(IPRecord(ip_address=str(ip)))
     if batch:
         db.add_all(batch)
@@ -93,7 +94,7 @@ async def delete_subnet(subnet_id: str, db: AsyncSession = Depends(get_db), curr
     if not s:
         raise HTTPException(status_code=404, detail="Subnet not found")
     # Delete IP records first
-    await db.execute(delete(IPRecord).where(IPRecord.ip_address.op("<<=")(s.cidr)))
+    await db.execute(delete(IPRecord).where(IPRecord.ip_address.op("<<=")(cast(s.cidr, CIDR))))
     await db.execute(delete(IPSubnet).where(IPSubnet.id == subnet_id))
     await db.commit()
 
@@ -109,28 +110,43 @@ async def get_subnet_ips(
     if not subnet:
         raise HTTPException(status_code=404, detail="Subnet not found")
 
-    # Get all IPs in subnet
+    # Get existing IPs in subnet from DB
     result = await db.execute(
         select(IPRecord)
-        .where(IPRecord.ip_address.op("<<=")(subnet.cidr))
+        .where(IPRecord.ip_address.op("<<=")(cast(subnet.cidr, CIDR)))
         .order_by(IPRecord.ip_address)
     )
-    records = result.scalars().all()
+    db_records = result.scalars().all()
+    db_map = {str(r.ip_address).split('/')[0]: r for r in db_records}
 
+    # Build full address list for the subnet (0-255)
+    network = ipaddress.ip_network(subnet.cidr, strict=False)
+    all_records = []
     online = offline = unused = 0
-    for r in records:
-        if r.status == IPStatus.ONLINE:
-            online += 1
-        elif r.status == IPStatus.OFFLINE:
-            offline += 1
+
+    for host in network:
+        ip_str = str(host)
+        if ip_str in db_map:
+            r = db_map[ip_str]
+            all_records.append(_iprecord_to_response(r))
+            if r.status == IPStatus.ONLINE:
+                online += 1
+            elif r.status == IPStatus.OFFLINE:
+                offline += 1
+            else:
+                unused += 1
         else:
+            all_records.append(IPRecordResponse(
+                id="", ip_address=ip_str, mac_address=None,
+                last_seen=None, status=None, created_at=None, updated_at=None,
+            ))
             unused += 1
 
     return IPBulkResponse(
         subnet=subnet.cidr,
-        total=len(records),
+        total=len(all_records),
         online=online, offline=offline, unused=unused,
-        records=[_iprecord_to_response(r) for r in records]
+        records=all_records,
     )
 
 
@@ -144,7 +160,7 @@ async def search_ip(
     # Try IP first
     try:
         ipaddress.ip_address(q)
-        result = await db.execute(select(IPRecord).where(IPRecord.ip_address == q))
+        result = await db.execute(select(IPRecord).where(IPRecord.ip_address == cast(q, INET)))
         record = result.scalar_one_or_none()
         if record:
             return {"type": "ip", "record": _iprecord_to_response(record)}
@@ -161,17 +177,32 @@ async def search_ip(
         if records:
             return {"type": "mac", "records": [_iprecord_to_response(r) for r in records]}
 
-    # Try subnet
+    # Try subnet (match by CIDR string prefix)
+    # First try exact match
+    subnet_result = await db.execute(
+        select(IPSubnet).where(IPSubnet.cidr == q)
+    )
+    subnet = subnet_result.scalar_one_or_none()
+    if subnet:
+        return {"type": "subnet", "subnet_id": str(subnet.id), "cidr": subnet.cidr}
+    
+    # Try prefix match (e.g., "10.10.0" matches "10.10.0.0/24")
+    subnet_result = await db.execute(
+        select(IPSubnet).where(IPSubnet.cidr.startswith(q))
+    )
+    subnet = subnet_result.scalars().first()
+    if subnet:
+        return {"type": "subnet", "subnet_id": str(subnet.id), "cidr": subnet.cidr}
+    
+    # Try IP network containment match (for full CIDR like 10.10.0.0/16)
     try:
         network = ipaddress.ip_network(q, strict=False)
-        result = await db.execute(
-            select(IPRecord)
-            .where(IPRecord.ip_address.op("<<=")(str(network)))
-            .order_by(IPRecord.ip_address)
+        subnet_result = await db.execute(
+            select(IPSubnet).where(cast(IPSubnet.cidr, CIDR).op(">>=")(str(network)))
         )
-        records = result.scalars().all()
-        if records:
-            return {"type": "subnet", "cidr": str(network), "records": [_iprecord_to_response(r) for r in records]}
+        subnet = subnet_result.scalar_one_or_none()
+        if subnet:
+            return {"type": "subnet", "subnet_id": str(subnet.id), "cidr": subnet.cidr}
     except ValueError:
         pass
 
@@ -185,7 +216,7 @@ async def get_ip_tooltip(ip_address: str, db: AsyncSession = Depends(get_db), cu
     if cached:
         return IPTooltipData(**cached)
 
-    result = await db.execute(select(IPRecord).where(IPRecord.ip_address == ip_address))
+    result = await db.execute(select(IPRecord).where(IPRecord.ip_address == cast(ip_address, INET)))
     record = result.scalar_one_or_none()
     if not record:
         raise HTTPException(status_code=404, detail="IP not found")
@@ -195,7 +226,7 @@ async def get_ip_tooltip(ip_address: str, db: AsyncSession = Depends(get_db), cu
     # Get history (max 5, sorted desc)
     result = await db.execute(
         select(IPEvent)
-        .where(IPEvent.ip_address == ip_address)
+        .where(IPEvent.ip_address == cast(ip_address, INET))
         .order_by(IPEvent.seen_at.desc())
         .limit(5)
     )

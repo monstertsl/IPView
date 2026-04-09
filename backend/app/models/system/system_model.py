@@ -18,6 +18,8 @@ class SystemConfig(Base):
     inactive_days_limit: Mapped[int] = mapped_column(Integer, default=90, nullable=False)
     log_retention_days_login: Mapped[int] = mapped_column(Integer, default=90, nullable=False)
     log_retention_days_scan: Mapped[int] = mapped_column(Integer, default=30, nullable=False)
+    scan_interval: Mapped[str] = mapped_column(String(20), default="every_day", nullable=False)
+    scan_time: Mapped[str] = mapped_column(String(10), default="00:00", nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime, default=lambda: datetime.now(), onupdate=lambda: datetime.now(), nullable=False
+        DateTime, default=lambda: datetime.utcnow(), onupdate=lambda: datetime.utcnow(), nullable=False
     )

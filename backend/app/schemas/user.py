@@ -11,11 +11,14 @@ class UserBase(BaseModel):
 
 
 class UserCreate(UserBase):
-    password: str = Field(..., min_length=8, max_length=128)
+    password: Optional[str] = Field(None, min_length=8, max_length=128)
 
     @field_validator("password")
     @classmethod
-    def validate_password(cls, v: str) -> str:
+    def validate_password(cls, v: Optional[str]) -> Optional[str]:
+        # TOTP_ONLY 模式不需要密码
+        if v is None:
+            return v
         if len(v) < 8:
             raise ValueError("Password must be at least 8 characters")
         return v
@@ -29,6 +32,10 @@ class UserUpdate(BaseModel):
 
 class UserPasswordUpdate(BaseModel):
     old_password: str
+    new_password: str = Field(..., min_length=8, max_length=128)
+
+
+class AdminPasswordReset(BaseModel):
     new_password: str = Field(..., min_length=8, max_length=128)
 
 
@@ -46,8 +53,18 @@ class UserResponse(UserBase):
 
 class LoginRequest(BaseModel):
     username: str
-    password: str
+    password: Optional[str] = None
     totp_code: Optional[str] = None
+
+
+class CheckUserRequest(BaseModel):
+    username: str
+
+
+class CheckUserResponse(BaseModel):
+    exists: bool
+    auth_mode: Optional[str] = None
+    totp_enabled: bool = False
 
 
 class LoginResponse(BaseModel):

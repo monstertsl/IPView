@@ -21,5 +21,6 @@ async def get_db() -> AsyncSession:
 
 async def init_db():
     from app.models import user, switch, ip, scan, log  # noqa
+    from app.models.scan import scan_subnet_model  # noqa - for scan_subnets table
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)

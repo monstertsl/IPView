@@ -33,7 +33,7 @@ class ScanTask(Base):
 
     error_message: Mapped[str] = mapped_column(Text, nullable=True)
     triggered_by: Mapped[TriggerType] = mapped_column(SAEnum(TriggerType), default=TriggerType.MANUAL)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.utcnow(), nullable=False)
 
 
 class ScanLog(Base):
@@ -44,4 +44,4 @@ class ScanLog(Base):
     status: Mapped[String] = mapped_column(String(20), nullable=False)
     message: Mapped[str] = mapped_column(Text, nullable=True)
     duration: Mapped[int] = mapped_column(Integer, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.utcnow(), nullable=False)

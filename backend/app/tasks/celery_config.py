@@ -17,10 +17,16 @@ celery.conf.update(
     enable_utc=True,
 )
 
-# Daily log cleanup at 3 AM
+# Scheduled tasks
 celery.conf.beat_schedule = {
+    # Daily log cleanup at 3 AM UTC
     "daily-log-cleanup": {
         "task": "app.tasks.beat.cleanup_old_logs",
         "schedule": crontab(hour=3, minute=0),
+    },
+    # Auto SNMP scan — hourly trigger, actual execution controlled by DB config
+    "auto-snmp-scan": {
+        "task": "app.tasks.beat.auto_scan",
+        "schedule": crontab(minute=0),
     },
 }

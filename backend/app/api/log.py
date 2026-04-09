@@ -1,8 +1,9 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete, and_, func
 from typing import Optional
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta
 
 from app.core.database import get_db
 from app.core.auth import get_current_user, require_role
@@ -13,7 +14,7 @@ from app.schemas.log import LoginLogResponse, LoginLogQuery, ScanLogQuery, Clean
 router = APIRouter(prefix="/api/logs", tags=["日志查询"])
 
 
-@router.get("/login", response_model=list[LoginLogResponse])
+@router.get("/login")
 async def list_login_logs(
     username: Optional[str] = None,
     success: Optional[bool] = None,
@@ -58,7 +59,7 @@ async def list_login_logs(
         message=l.message, created_at=l.created_at
     ) for l in logs]
 
-    return {"total": total, "page": page, "page_size": page_size, "items": items}
+    return {"total": total, "page": page, "page_size": page_size, "items": [item.model_dump() for item in items]}
 
 
 @router.post("/cleanup", response_model=CleanupResponse)
@@ -67,7 +68,7 @@ async def cleanup_logs(
     db: AsyncSession = Depends(get_db),
     current_user=Depends(require_role("admin"))
 ):
-    cutoff = datetime.now(timezone.utc) - timedelta(days=body.days)
+    cutoff = datetime.utcnow() - timedelta(days=body.days)
 
     if body.type == "login":
         result = await db.execute(

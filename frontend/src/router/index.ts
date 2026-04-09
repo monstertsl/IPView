@@ -28,13 +28,23 @@ const router = createRouter({
   routes
 })
 
-router.beforeEach((to, _from, next) => {
+router.beforeEach(async (to, _from, next) => {
   const auth = useAuthStore()
-  if (to.meta.requiresAuth && !auth.isLoggedIn) {
+
+  // 有 token 但 user 信息丢失（页面刷新），先恢复用户信息
+  if (auth.isLoggedIn && !auth.user) {
+    await auth.fetchCurrentUser()
+  }
+
+  const requiresAuth = to.matched.some(record => record.meta.requiresAuth)
+  const isGuest = to.matched.some(record => record.meta.guest)
+  const requiresAdmin = to.matched.some(record => record.meta.admin)
+
+  if (requiresAuth && !auth.isLoggedIn) {
     next('/login')
-  } else if (to.meta.guest && auth.isLoggedIn) {
+  } else if (isGuest && auth.isLoggedIn) {
     next('/ip')
-  } else if (to.meta.admin && auth.user?.role !== 'admin') {
+  } else if (requiresAdmin && auth.user?.role !== 'admin') {
     next('/ip')
   } else {
     next()

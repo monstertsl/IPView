@@ -14,6 +14,8 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    networks:
+      - ipview-network
 
   redis:
     image: redis:7-alpine
@@ -26,6 +28,8 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    networks:
+      - ipview-network
 
   backend:
     build:
@@ -46,6 +50,14 @@ services:
       redis:
         condition: service_healthy
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    healthcheck:
+      test: ["CMD", "python", "-c", "import httpx; httpx.get('http://localhost:8000/api/health').raise_for_status()"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    networks:
+      - ipview-network
 
   celery:
     build:
@@ -59,9 +71,13 @@ services:
       SECRET_KEY: change-me-in-production-use-64-char-random-hex
       ENCRYPT_KEY: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
     depends_on:
-      - postgres
-      - redis
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     command: celery -A celery_app worker --loglevel=info
+    networks:
+      - ipview-network
 
   celery-beat:
     build:
@@ -75,9 +91,13 @@ services:
       SECRET_KEY: change-me-in-production-use-64-char-random-hex
       ENCRYPT_KEY: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
     depends_on:
-      - postgres
-      - redis
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     command: celery -A celery_app beat --loglevel=info
+    networks:
+      - ipview-network
 
   frontend:
     build:
@@ -86,7 +106,14 @@ services:
     ports:
       - "3000:3000"
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
+    networks:
+      - ipview-network
+
+networks:
+  ipview-network:
+    driver: bridge
 
 volumes:
   pgdata:

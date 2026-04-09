@@ -34,13 +34,13 @@ class IPSubnetResponse(IPSubnetBase):
 
 
 class IPRecordResponse(BaseModel):
-    id: str
+    id: Optional[str] = None
     ip_address: str
-    mac_address: Optional[str]
-    last_seen: Optional[datetime]
-    status: Optional[IPStatus]
-    created_at: datetime
-    updated_at: datetime
+    mac_address: Optional[str] = None
+    last_seen: Optional[datetime] = None
+    status: Optional[IPStatus] = None
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
 
     class Config:
         from_attributes = True
