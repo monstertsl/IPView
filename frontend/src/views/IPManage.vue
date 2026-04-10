@@ -279,9 +279,31 @@ async function prefetchTooltips(records: IPRecord[]) {
 
 function showTooltip(ip: IPRecord, event: MouseEvent) {
   tooltipIP.value = ip
-  tooltipStyle.top = (event.clientY + 10) + 'px'
-  tooltipStyle.left = (event.clientX + 10) + 'px'
   tooltipVisible.value = true
+
+  // 使用 nextTick 确保 tooltip 已渲染后再计算位置
+  setTimeout(() => {
+    const tooltipEl = document.querySelector('.ip-tooltip') as HTMLElement
+    const tooltipWidth = tooltipEl?.offsetWidth || 220
+    const tooltipHeight = tooltipEl?.offsetHeight || 150
+    const padding = 10
+
+    let top = event.clientY + padding
+    let left = event.clientX + padding
+
+    // 检测右边界
+    if (left + tooltipWidth > window.innerWidth) {
+      left = event.clientX - tooltipWidth - padding
+    }
+    // 检测下边界
+    if (top + tooltipHeight > window.innerHeight) {
+      top = event.clientY - tooltipHeight - padding
+    }
+
+    tooltipStyle.top = top + 'px'
+    tooltipStyle.left = left + 'px'
+  }, 0)
+
   // Use cached data if available, no request on hover
   const cached = tooltipCache.value[ip.ip_address]
   if (cached) {
