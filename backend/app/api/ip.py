@@ -157,17 +157,18 @@ async def search_ip(
     current_user=Depends(get_current_user)
 ):
     q = q.strip()
-    # Try IP first
+    # 1) Try exact IP address
     try:
         ipaddress.ip_address(q)
         result = await db.execute(select(IPRecord).where(IPRecord.ip_address == cast(q, INET)))
         record = result.scalar_one_or_none()
         if record:
             return {"type": "ip", "record": _iprecord_to_response(record)}
+        # IP not found in DB → fall through to subnet search
     except ValueError:
         pass
 
-    # Try MAC
+    # 2) Try MAC
     import re
     if re.match(r"^[0-9A-Fa-f]{2}(:[0-9A-Fa-f]{2}){5}$", q):
         result = await db.execute(
@@ -177,44 +178,48 @@ async def search_ip(
         if records:
             return {"type": "mac", "records": [_iprecord_to_response(r) for r in records]}
 
-    # Try subnet (match by CIDR string prefix)
-    # First try exact match
-    subnet_result = await db.execute(
-        select(IPSubnet).where(IPSubnet.cidr == q)
-    )
+    # 3) Try exact CIDR match
+    subnet_result = await db.execute(select(IPSubnet).where(IPSubnet.cidr == q))
     subnet = subnet_result.scalar_one_or_none()
     if subnet:
         return {"type": "subnet", "subnet_id": str(subnet.id), "cidr": subnet.cidr}
-    
-    # Try prefix match (e.g., "10.10.0" matches "10.10.0.0/24")
-    subnet_result = await db.execute(
-        select(IPSubnet).where(IPSubnet.cidr.startswith(q))
-    )
-    subnet = subnet_result.scalars().first()
-    if subnet:
-        return {"type": "subnet", "subnet_id": str(subnet.id), "cidr": subnet.cidr}
-    
-    # Try IP network containment match (for full CIDR like 10.10.0.0/16)
-    try:
-        network = ipaddress.ip_network(q, strict=False)
-        subnet_result = await db.execute(
-            select(IPSubnet).where(cast(IPSubnet.cidr, CIDR).op(">>=")(str(network)))
-        )
-        subnet = subnet_result.scalar_one_or_none()
-        if subnet:
-            return {"type": "subnet", "subnet_id": str(subnet.id), "cidr": subnet.cidr}
-    except ValueError:
-        pass
 
-    # Fuzzy match: search subnets whose IP portion contains the query (e.g. "168" matches "10.10.168.0/24")
-    # Only match the network part before '/', not the subnet mask
+    # 4) Prefix match on the IP portion only (before '/')
+    #    e.g. "10.10.0" matches "10.10.0.0/24"
+    #    Only auto-jump if exactly ONE match, otherwise show list
+    subnet_result = await db.execute(
+        select(IPSubnet).where(func.split_part(IPSubnet.cidr, '/', 1).startswith(q)).order_by(cast(IPSubnet.cidr, CIDR))
+    )
+    prefix_matches = subnet_result.scalars().all()
+    if len(prefix_matches) == 1:
+        s = prefix_matches[0]
+        return {"type": "subnet", "subnet_id": str(s.id), "cidr": s.cidr}
+    elif len(prefix_matches) > 1:
+        return {
+            "type": "subnets",
+            "subnets": [{"subnet_id": str(s.id), "cidr": s.cidr} for s in prefix_matches]
+        }
+
+    # 5) IP network containment (only for valid CIDR-like input containing '/', e.g. "10.10.0.0/16")
+    if '/' in q:
+        try:
+            network = ipaddress.ip_network(q, strict=False)
+            subnet_result = await db.execute(
+                select(IPSubnet).where(cast(IPSubnet.cidr, CIDR).op(">>=")(cast(str(network), CIDR)))
+            )
+            subnet = subnet_result.scalar_one_or_none()
+            if subnet:
+                return {"type": "subnet", "subnet_id": str(subnet.id), "cidr": subnet.cidr}
+        except ValueError:
+            pass
+
+    # 6) Fuzzy match on IP portion only (exclude subnet mask)
+    #    e.g. "168" matches subnets whose IP part contains "168"
     subnet_result = await db.execute(
         select(IPSubnet).where(func.split_part(IPSubnet.cidr, '/', 1).contains(q)).order_by(cast(IPSubnet.cidr, CIDR))
     )
     fuzzy_subnets = subnet_result.scalars().all()
-    if len(fuzzy_subnets) == 1:
-        return {"type": "subnet", "subnet_id": str(fuzzy_subnets[0].id), "cidr": fuzzy_subnets[0].cidr}
-    elif len(fuzzy_subnets) > 1:
+    if len(fuzzy_subnets) >= 1:
         return {
             "type": "subnets",
             "subnets": [{"subnet_id": str(s.id), "cidr": s.cidr} for s in fuzzy_subnets]
