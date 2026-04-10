@@ -206,9 +206,10 @@ async def search_ip(
     except ValueError:
         pass
 
-    # Fuzzy match: search subnets whose CIDR contains the query string (e.g. "168" matches "10.10.168.0/24")
+    # Fuzzy match: search subnets whose IP portion contains the query (e.g. "168" matches "10.10.168.0/24")
+    # Only match the network part before '/', not the subnet mask
     subnet_result = await db.execute(
-        select(IPSubnet).where(IPSubnet.cidr.contains(q)).order_by(cast(IPSubnet.cidr, CIDR))
+        select(IPSubnet).where(func.split_part(IPSubnet.cidr, '/', 1).contains(q)).order_by(cast(IPSubnet.cidr, CIDR))
     )
     fuzzy_subnets = subnet_result.scalars().all()
     if len(fuzzy_subnets) == 1:
