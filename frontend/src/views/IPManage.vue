@@ -79,7 +79,7 @@
               :key="ip.ip_address"
               class="ip-cell"
               :class="ip.status?.toLowerCase() || 'unused'"
-              :style="{ gridColumn: `span 1` }"
+              :style="cellStyle(ip.status)"
               @mouseenter="showTooltip(ip, $event)"
               @mouseleave="hideTooltip"
             >
@@ -120,14 +120,14 @@
     </n-modal>
 
     <!-- Tooltip -->
-    <div v-if="tooltipVisible" class="ip-tooltip" :style="tooltipStyle">
+    <div v-if="tooltipVisible" class="ip-tooltip" :style="[tooltipStyle, tooltipThemeStyle]">
       <div class="tooltip-title">IP 地址：{{ tooltipIP?.ip_address }}</div>
       <n-tag :type="statusType(tooltipIP?.status)" size="small" style="margin-bottom: 6px">
         {{ tooltipIP?.status || 'UNUSED' }}
       </n-tag>
       <div class="tooltip-row">MAC：{{ tooltipIP?.mac_address || '未知' }}</div>
       <div class="tooltip-row">上次扫描：{{ formatTime(tooltipIP?.last_seen) }}</div>
-      <div class="tooltip-divider">历史 MAC：</div>
+      <div class="tooltip-divider" :style="tooltipDividerStyle">历史 MAC：</div>
       <div v-if="tooltipHistory.length" v-for="h in tooltipHistory" :key="h.id" class="tooltip-row" :style="{ color: h.isCurrent ? '#18a058' : '' }">
         {{ h.mac }}
         <span v-if="h.isCurrent" style="color:#18a058">(当前)</span>
@@ -148,7 +148,8 @@ import { formatDateTime } from '@/utils/time'
 import { useThemeStore } from '@/stores/theme'
 
 const message = useMessage()
-const { isDark } = useThemeStore()
+const themeStore = useThemeStore()
+const isDark = computed(() => themeStore.isDark)
 
 const subnets = ref<IPSubnet[]>([])
 const selectedSubnet = ref<IPSubnet | null>(null)
@@ -177,6 +178,16 @@ const tooltipVisible = ref(false)
 const tooltipIP = ref<IPRecord | null>(null)
 const tooltipHistory = ref<{ mac: string; isCurrent: boolean }[]>([])
 const tooltipStyle = reactive({ top: '0px', left: '0px' })
+
+const tooltipThemeStyle = computed(() => isDark.value
+  ? { background: 'rgba(20,28,49,0.98)', color: '#e2e8f0', border: '1px solid rgba(255,255,255,0.12)', boxShadow: '0 4px 20px rgba(0,0,0,0.5)' }
+  : { background: 'rgba(255,255,255,0.98)', color: '#1f2937', border: '1px solid #d1d5db', boxShadow: '0 4px 20px rgba(0,0,0,0.15)' }
+)
+
+const tooltipDividerStyle = computed(() => isDark.value
+  ? { color: 'rgba(255,255,255,0.5)' }
+  : { color: 'rgba(0,0,0,0.5)' }
+)
 
 onMounted(async () => {
   await loadSubnets()
@@ -319,6 +330,16 @@ function showTooltip(ip: IPRecord, event: MouseEvent) {
 function hideTooltip() { tooltipVisible.value = false }
 function statusType(s?: string) { return s === 'ONLINE' ? 'success' : s === 'OFFLINE' ? 'warning' : 'default' }
 function formatTime(t?: string) { return formatDateTime(t, '无记录') }
+
+function cellStyle(status?: string) {
+  const s = status?.toLowerCase() || 'unused'
+  if (s === 'online') return { background: 'rgba(24,160,88,0.7)', color: '#fff' }
+  if (s === 'offline') return { background: 'rgba(250,173,20,0.7)', color: '#fff' }
+  // unused
+  return isDark.value
+    ? { background: 'rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.35)' }
+    : { background: '#e5e7eb', color: '#6b7280' }
+}
 </script>
 
 <style scoped>
@@ -372,10 +393,6 @@ function formatTime(t?: string) { return formatDateTime(t, '无记录') }
   font-weight: 500;
   transition: all 0.15s;
 }
-.ip-cell.online { background: rgba(24,160,88,0.7); color: #fff; }
-.ip-cell.offline { background: rgba(250,173,20,0.7); color: #fff; }
-.ip-cell.unused { background: rgba(255,255,255,0.05); color: rgba(255,255,255,0.3); }
-.light-mode .ip-cell.unused { background: #e5e7eb; color: #6b7280; }
 .ip-cell:hover { transform: scale(1.1); box-shadow: 0 2px 8px rgba(0,0,0,0.3); }
 .ip-text { overflow: hidden; text-overflow: ellipsis; }
 
@@ -383,30 +400,19 @@ function formatTime(t?: string) { return formatDateTime(t, '无记录') }
 .ip-tooltip {
   position: fixed;
   z-index: 9999;
-  background: rgba(20,28,49,0.98);
-  color: #e2e8f0;
-  border: 1px solid rgba(255,255,255,0.12);
   border-radius: 8px;
   padding: 12px;
   min-width: 220px;
   max-width: 360px;
-  box-shadow: 0 4px 20px rgba(0,0,0,0.5);
   pointer-events: none;
-}
-.light-mode .ip-tooltip {
-  background: rgba(255,255,255,0.98);
-  border: 1px solid #d1d5db;
-  color: #1f2937;
-  box-shadow: 0 4px 20px rgba(0,0,0,0.15);
 }
 .tooltip-title { font-weight: 700; margin-bottom: 4px; }
 .tooltip-row { font-size: 12px; margin: 2px 0; }
-.tooltip-divider { font-size: 11px; margin-top: 6px; color: rgba(255,255,255,0.5); }
-.light-mode .tooltip-divider { color: rgba(0,0,0,0.5); }
+.tooltip-divider { font-size: 11px; margin-top: 6px; }
 
 /* Subnet list card */
 .subnet-list-card :deep(.n-card__content) { padding: 0 8px 0 8px; }
 .subnet-list-card :deep(.n-thing-main__header) { font-size: 13px; }
 .subnet-list-card :deep(.n-list-item) { padding-left: 8px; padding-right: 8px; }
-.light-mode :deep(.n-thing-main__description) { color: #6b7280; }
+
 </style>
