@@ -65,9 +65,9 @@ class SNMPScanner:
                 lexicographicMode=False,
             ):
                 if errorIndication:
-                    break
+                    raise Exception(f"SNMP error: {errorIndication}")
                 if errorStatus:
-                    break
+                    raise Exception(f"SNMP error: {errorStatus.prettyPrint()}")
 
                 for varBind in varBinds:
                     ip_oid = str(varBind[0])

@@ -55,6 +55,7 @@
 import { ref, reactive, onMounted, h } from 'vue'
 import { useMessage, NTag, NButton, NIcon } from 'naive-ui'
 import { SearchOutline, RefreshOutline } from '@vicons/ionicons5'
+import { formatDateTime } from '@/utils/time'
 import api from '@/api'
 
 const message = useMessage()
@@ -111,29 +112,40 @@ const loginColumns = [
     title: '时间', 
     key: 'created_at', 
     width: 180,
-    render: (r: any) => r.created_at ? new Date(r.created_at).toLocaleString('zh-CN') : '-'
+    render: (r: any) => formatDateTime(r.created_at)
   },
 ]
 
 const scanColumns = [
-  { title: '任务 ID', key: 'task_id', ellipsis: { tooltip: true }, width: 300 },
   { 
     title: '状态', 
     key: 'status', 
-    width: 100,
+    width: 90,
     render: (r: any) => h(NTag, { 
-      type: r.status === 'SUCCESS' ? 'success' : 'error', 
+      type: r.status === 'SUCCESS' ? 'success' : r.status === 'PARTIAL' ? 'warning' : r.status === 'FAILED' ? 'error' : 'info', 
       size: 'small',
       bordered: false
     }, { default: () => r.status }) 
   },
-  { title: '消息', key: 'message', ellipsis: { tooltip: true } },
-  { title: '耗时(秒)', key: 'duration', width: 100 },
+  { title: '触发', key: 'triggered_by', width: 90 },
+  { title: '总 IPs', key: 'total_ips', width: 80 },
+  { title: '更新', key: 'updated_ips', width: 80 },
+  { title: '耗时(s)', key: 'duration', width: 80 },
+  { 
+    title: '消息', 
+    key: 'message',
+    ellipsis: { tooltip: true },
+    render: (r: any) => {
+      if (r.error_message) return r.error_message
+      if (r.status === 'SUCCESS') return `扫描完成，共 ${r.total_ips} 个 IP，更新 ${r.updated_ips} 个`
+      return '-'
+    }
+  },
   { 
     title: '时间', 
     key: 'created_at', 
     width: 180,
-    render: (r: any) => r.created_at ? new Date(r.created_at).toLocaleString('zh-CN') : '-'
+    render: (r: any) => formatDateTime(r.created_at)
   },
 ]
 
@@ -178,7 +190,7 @@ async function loadLoginLogs() {
 async function loadScanLogs() {
   loadingScan.value = true
   try {
-    const res = await api.get('/scan/logs')
+    const res = await api.get('/scan/tasks')
     scanLogs.value = Array.isArray(res.data) ? res.data : []
   } catch (e: any) { 
     console.error('加载扫描日志失败:', e)
@@ -209,141 +221,6 @@ async function cleanupLogs(type: 'login' | 'scan') {
 </script>
 
 <style scoped>
-.log-query {
-  padding: 0;
-}
-
-.log-card {
-  background: #1a1f2e !important;
-  border-radius: 8px;
-}
-
-/* 浅色模式下的卡片样式 */
-html:not(.dark) .log-card {
-  background: #ffffff !important;
-}
-
-.log-table {
-  border-radius: 6px;
-  overflow: hidden;
-}
-
-:deep(.custom-tabs .n-tabs-tab) {
-  --n-tab-text-color: #a0aec0;
-  --n-tab-text-color-active: #10b981;
-  --n-tab-text-color-hover: #fff;
-}
-
-/* 浅色模式下的标签样式 */
-html:not(.dark) :deep(.custom-tabs .n-tabs-tab) {
-  --n-tab-text-color: #6b7280;
-  --n-tab-text-color-active: #10b981;
-  --n-tab-text-color-hover: #1f2937;
-}
-
-:deep(.custom-tabs .n-tabs-bar) {
-  background-color: #10b981;
-}
-
-:deep(.n-card) {
-  --n-color: #1a1f2e;
-  --n-border-color: transparent;
-}
-
-/* 浅色模式下的卡片边框 */
-html:not(.dark) :deep(.n-card) {
-  --n-color: #ffffff;
-  --n-border-color: #e5e7eb;
-}
-
-:deep(.n-data-table) {
-  --n-th-color: #242b3d;
-  --n-td-color: #1a1f2e;
-  --n-border-color: #2d3548;
-  --n-th-text-color: #a0aec0;
-  --n-td-text-color: #e2e8f0;
-}
-
-/* 浅色模式下的表格样式 */
-html:not(.dark) :deep(.n-data-table) {
-  --n-th-color: #f8fafc;
-  --n-td-color: #ffffff;
-  --n-border-color: #e5e7eb;
-  --n-th-text-color: #6b7280;
-  --n-td-text-color: #1f2937;
-}
-
-:deep(.n-input) {
-  --n-color: #242b3d;
-  --n-color-focus: #242b3d;
-  --n-border: 1px solid #3a4459;
-  --n-border-hover: 1px solid #10b981;
-  --n-border-focus: 1px solid #10b981;
-  --n-text-color: #fff;
-  --n-placeholder-color: #64748b;
-}
-
-/* 浅色模式下的输入框样式 */
-html:not(.dark) :deep(.n-input) {
-  --n-color: #ffffff;
-  --n-color-focus: #ffffff;
-  --n-border: 1px solid #e5e7eb;
-  --n-border-hover: 1px solid #10b981;
-  --n-border-focus: 1px solid #10b981;
-  --n-text-color: #1f2937;
-  --n-placeholder-color: #9ca3af;
-}
-
-:deep(.n-select) {
-  --n-color: #242b3d;
-  --n-border: 1px solid #3a4459;
-  --n-text-color: #fff;
-}
-
-/* 浅色模式下的选择框样式 */
-html:not(.dark) :deep(.n-select) {
-  --n-color: #ffffff;
-  --n-border: 1px solid #e5e7eb;
-  --n-text-color: #1f2937;
-}
-
-:deep(.n-date-picker) {
-  --n-panel-color: #242b3d;
-}
-
-/* 浅色模式下的日期选择器样式 */
-html:not(.dark) :deep(.n-date-picker) {
-  --n-panel-color: #ffffff;
-}
-
-:deep(.n-button--primary-type) {
-  --n-color: #10b981;
-  --n-color-hover: #059669;
-  --n-color-pressed: #047857;
-}
-
-:deep(.n-button--warning-type) {
-  --n-color: #f59e0b;
-  --n-color-hover: #d97706;
-  --n-color-pressed: #b45309;
-}
-
-:deep(.n-pagination) {
-  --n-item-color: transparent;
-  --n-item-color-hover: rgba(16, 185, 129, 0.1);
-  --n-item-color-active: #10b981;
-  --n-item-text-color: #a0aec0;
-  --n-item-text-color-active: #fff;
-  --n-item-border-color: #3a4459;
-}
-
-/* 浅色模式下的分页样式 */
-html:not(.dark) :deep(.n-pagination) {
-  --n-item-color: transparent;
-  --n-item-color-hover: rgba(16, 185, 129, 0.1);
-  --n-item-color-active: #10b981;
-  --n-item-text-color: #6b7280;
-  --n-item-text-color-active: #fff;
-  --n-item-border-color: #e5e7eb;
-}
+.log-query { padding: 0; }
+.log-table { border-radius: 6px; overflow: hidden; }
 </style>

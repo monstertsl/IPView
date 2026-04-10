@@ -57,7 +57,7 @@ def _iprecord_to_response(r: IPRecord) -> IPRecordResponse:
 
 @router.get("/subnets", response_model=List[IPSubnetResponse])
 async def list_subnets(db: AsyncSession = Depends(get_db), current_user=Depends(get_current_user)):
-    result = await db.execute(select(IPSubnet).order_by(IPSubnet.cidr))
+    result = await db.execute(select(IPSubnet).order_by(cast(IPSubnet.cidr, CIDR)))
     subnets = result.scalars().all()
     return [IPSubnetResponse(
         id=str(s.id), cidr=s.cidr,
@@ -205,6 +205,19 @@ async def search_ip(
             return {"type": "subnet", "subnet_id": str(subnet.id), "cidr": subnet.cidr}
     except ValueError:
         pass
+
+    # Fuzzy match: search subnets whose CIDR contains the query string (e.g. "168" matches "10.10.168.0/24")
+    subnet_result = await db.execute(
+        select(IPSubnet).where(IPSubnet.cidr.contains(q)).order_by(cast(IPSubnet.cidr, CIDR))
+    )
+    fuzzy_subnets = subnet_result.scalars().all()
+    if len(fuzzy_subnets) == 1:
+        return {"type": "subnet", "subnet_id": str(fuzzy_subnets[0].id), "cidr": fuzzy_subnets[0].cidr}
+    elif len(fuzzy_subnets) > 1:
+        return {
+            "type": "subnets",
+            "subnets": [{"subnet_id": str(s.id), "cidr": s.cidr} for s in fuzzy_subnets]
+        }
 
     return {"type": "not_found", "q": q}
 

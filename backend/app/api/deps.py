@@ -44,7 +44,11 @@ async def login(request: Request, body: LoginRequest, db: AsyncSession = Depends
     result = await db.execute(select(User).where(User.username == body.username))
     user: User = result.scalar_one_or_none()
 
-    client_ip = request.client.host if request.client else "unknown"
+    client_ip = (
+        request.headers.get("x-forwarded-for", "").split(",")[0].strip()
+        or request.headers.get("x-real-ip", "")
+        or (request.client.host if request.client else "unknown")
+    )
     user_agent = request.headers.get("user-agent", "")
 
     if not user:

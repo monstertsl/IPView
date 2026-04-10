@@ -24,3 +24,13 @@ async def init_db():
     from app.models.scan import scan_subnet_model  # noqa - for scan_subnets table
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+    # Migrate: add PARTIAL to taskstatus enum (must run outside transaction)
+    try:
+        from sqlalchemy import text
+        raw_conn = await engine.raw_connection()
+        await raw_conn.driver_connection.execute(
+            "ALTER TYPE taskstatus ADD VALUE IF NOT EXISTS 'PARTIAL' AFTER 'SUCCESS'"
+        )
+        await raw_conn.close()
+    except Exception:
+        pass  # already exists or not supported

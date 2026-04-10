@@ -1,13 +1,13 @@
 <template>
-  <div class="ip-manage">
-    <n-grid :cols="24" :x-gap="16" :y-gap="16" align-items="start" v-if="selectedSubnet">
+  <div class="ip-manage" :class="{ 'light-mode': !isDark }">
+    <div class="ip-layout" v-if="selectedSubnet">
       <!-- Left: Subnet list -->
-      <n-gi :span="4">
+      <div class="ip-layout-left">
         <n-card title="网段列表" size="small" :bordered="false" class="subnet-list-card">
           <template #header-extra>
             <n-button text @click="showAddSubnet = true"><n-icon><add-outline /></n-icon></n-button>
           </template>
-          <n-scrollbar style="max-height: calc(100vh - 180px);">
+          <n-scrollbar style="height: calc(100vh - 152px);">
             <n-list hoverable clickable>
               <n-list-item
                 v-for="sub in subnets"
@@ -20,20 +20,20 @@
             </n-list>
           </n-scrollbar>
         </n-card>
-      </n-gi>
+      </div>
 
       <!-- Right: IP grid + stats -->
-      <n-gi :span="20">
+      <div class="ip-layout-right">
         <!-- Search -->
         <n-space style="margin-bottom: 12px">
-          <n-input v-model:value="searchQ" placeholder="搜索 IP / MAC / 网段" clearable style="width: 300px" @keyup.enter="handleSearch">
+          <n-input v-model:value="searchQ" placeholder="搜索 IP / MAC / 网段" clearable style="width: 300px" @keyup.enter="handleSearch" @clear="searchResult = null; fuzzySubnets = null">
             <template #prefix><n-icon><search-outline /></n-icon></template>
           </n-input>
           <n-button type="primary" @click="handleSearch">搜索</n-button>
         </n-space>
 
-        <!-- Subnet title + Stats -->
-        <n-grid :cols="5" :x-gap="12" style="margin-bottom: 12px; align-items: end;">
+        <!-- Subnet title + Stats (hide when searching IP/MAC or fuzzy matches) -->
+        <n-grid v-if="!searchResult && !fuzzySubnets" :cols="5" :x-gap="12" style="margin-bottom: 12px; align-items: end;">
           <n-gi>
             <n-statistic label="网段" style="--n-label-font-size: 14px;">
               <template #default>
@@ -57,7 +57,23 @@
 
         <!-- IP Grid -->
         <n-card :bordered="false" size="small">
-          <div class="ip-grid" v-if="!searchResult">
+          <!-- Fuzzy subnet matches -->
+          <div v-if="fuzzySubnets" style="padding: 8px 0;">
+            <n-text depth="3" style="margin-bottom: 8px; display: block;">找到 {{ fuzzySubnets.length }} 个匹配网段，请选择：</n-text>
+            <n-space vertical :size="4">
+              <n-button
+                v-for="item in fuzzySubnets"
+                :key="item.subnet_id"
+                text
+                type="primary"
+                style="font-size: 14px;"
+                @click="selectFuzzySubnet(item)"
+              >
+                {{ item.cidr }}
+              </n-button>
+            </n-space>
+          </div>
+          <div class="ip-grid" v-else-if="!searchResult">
             <div
               v-for="ip in paginatedIPs"
               :key="ip.ip_address"
@@ -73,8 +89,8 @@
           <!-- Search result table -->
           <n-data-table v-else :columns="searchResultColumns" :data="searchResult" :bordered="false" size="small" />
         </n-card>
-      </n-gi>
-    </n-grid>
+      </div>
+    </div>
 
     <!-- No subnet selected -->
     <div v-else style="margin-top: 100px; text-align: center">
@@ -128,8 +144,11 @@ import { h } from 'vue'
 import api from '@/api'
 import type { IPSubnet, IPRecord, IPBulkResponse, IPTooltipData } from '@/types'
 import { SearchOutline, AddOutline } from '@vicons/ionicons5'
+import { formatDateTime } from '@/utils/time'
+import { useThemeStore } from '@/stores/theme'
 
 const message = useMessage()
+const { isDark } = useThemeStore()
 
 const subnets = ref<IPSubnet[]>([])
 const selectedSubnet = ref<IPSubnet | null>(null)
@@ -199,9 +218,10 @@ async function addSubnet() {
 }
 
 async function handleSearch() {
-  if (!searchQ.value.trim()) { searchResult.value = null; return }
+  if (!searchQ.value.trim()) { searchResult.value = null; fuzzySubnets.value = null; return }
   try {
     const res = await api.get('/ip/search', { params: { q: searchQ.value } })
+    fuzzySubnets.value = null
     if (res.data.type === 'ip') {
       searchResult.value = [res.data.record]
     } else if (res.data.type === 'mac') {
@@ -216,11 +236,29 @@ async function handleSearch() {
       } else {
         message.error('网段未找到')
       }
+    } else if (res.data.type === 'subnets') {
+      // Multiple fuzzy matches, show selection list
+      searchResult.value = null
+      fuzzySubnets.value = res.data.subnets
     } else {
       searchResult.value = []
+      fuzzySubnets.value = null
       message.info('未找到结果')
     }
   } catch (e) { message.error('搜索失败') }
+}
+
+// Fuzzy subnet matches
+const fuzzySubnets = ref<{ subnet_id: string; cidr: string }[] | null>(null)
+
+async function selectFuzzySubnet(item: { subnet_id: string; cidr: string }) {
+  const targetSubnet = subnets.value.find(s => s.id === item.subnet_id)
+  if (targetSubnet) {
+    await selectSubnet(targetSubnet)
+    fuzzySubnets.value = null
+    searchResult.value = null
+    message.success(`已切换到网段: ${targetSubnet.cidr}`)
+  }
 }
 
 // Tooltip cache: ip_address → { history, last_seen, ... }
@@ -258,10 +296,44 @@ function showTooltip(ip: IPRecord, event: MouseEvent) {
 
 function hideTooltip() { tooltipVisible.value = false }
 function statusType(s?: string) { return s === 'ONLINE' ? 'success' : s === 'OFFLINE' ? 'warning' : 'default' }
-function formatTime(t?: string) { return t ? new Date(t).toLocaleString('zh-CN') : '无记录' }
+function formatTime(t?: string) { return formatDateTime(t, '无记录') }
 </script>
 
 <style scoped>
+.ip-layout {
+  display: flex;
+  gap: 16px;
+  height: calc(100vh - 96px);
+  min-height: 0;
+}
+.ip-layout-left {
+  width: 220px;
+  min-width: 220px;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+.ip-layout-left .subnet-list-card {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  height: 100%;
+}
+.ip-layout-left :deep(.n-card__content) {
+  flex: 1;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.ip-layout-right {
+  flex: 1;
+  min-width: 0;
+  overflow-y: auto;
+  height: 100%;
+}
+
+/* IP Grid */
 .ip-grid {
   display: grid;
   grid-template-columns: repeat(20, 1fr);
@@ -281,182 +353,38 @@ function formatTime(t?: string) { return t ? new Date(t).toLocaleString('zh-CN')
 .ip-cell.online { background: rgba(24,160,88,0.7); color: #fff; }
 .ip-cell.offline { background: rgba(250,173,20,0.7); color: #fff; }
 .ip-cell.unused { background: rgba(255,255,255,0.05); color: rgba(255,255,255,0.3); }
-
-/* 浅色模式下的未使用IP样式 */
-html:not(.dark) .ip-cell.unused { 
-  background: rgba(0,0,0,0.05); 
-  color: rgba(0,0,0,0.3); 
-}
-
+.light-mode .ip-cell.unused { background: #e5e7eb; color: #6b7280; }
 .ip-cell:hover { transform: scale(1.1); box-shadow: 0 2px 8px rgba(0,0,0,0.3); }
 .ip-text { overflow: hidden; text-overflow: ellipsis; }
+
+/* Tooltip */
 .ip-tooltip {
   position: fixed;
   z-index: 9999;
   background: rgba(20,28,49,0.98);
+  color: #e2e8f0;
   border: 1px solid rgba(255,255,255,0.12);
   border-radius: 8px;
   padding: 12px;
   min-width: 220px;
+  max-width: 360px;
   box-shadow: 0 4px 20px rgba(0,0,0,0.5);
   pointer-events: none;
 }
-
-/* 浅色模式下的tooltip样式 */
-html:not(.dark) .ip-tooltip {
+.light-mode .ip-tooltip {
   background: rgba(255,255,255,0.98);
-  border: 1px solid #e5e7eb;
+  border: 1px solid #d1d5db;
   color: #1f2937;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.15);
 }
-
 .tooltip-title { font-weight: 700; margin-bottom: 4px; }
 .tooltip-row { font-size: 12px; margin: 2px 0; }
 .tooltip-divider { font-size: 11px; margin-top: 6px; color: rgba(255,255,255,0.5); }
+.light-mode .tooltip-divider { color: rgba(0,0,0,0.5); }
 
-html:not(.dark) .tooltip-divider { 
-  color: rgba(0,0,0,0.5); 
-}
-
-/* 卡片样式 */
-:deep(.n-card) {
-  --n-color: #1a1f2e;
-  --n-border-color: transparent;
-  --n-title-text-color: #fff;
-}
-
-html:not(.dark) :deep(.n-card) {
-  --n-color: #ffffff;
-  --n-border-color: #e5e7eb;
-  --n-title-text-color: #1f2937;
-}
-
-/* 统计数字样式 */
-:deep(.n-statistic) {
-  --n-label-text-color: #a0aec0;
-  --n-value-text-color: #fff;
-}
-
-html:not(.dark) :deep(.n-statistic) {
-  --n-label-text-color: #6b7280;
-  --n-value-text-color: #1f2937;
-}
-
-/* 列表样式 */
-:deep(.n-list) {
-  --n-color: transparent;
-  --n-text-color: #fff;
-}
-
-html:not(.dark) :deep(.n-list) {
-  --n-color: transparent;
-  --n-text-color: #1f2937;
-}
-
-:deep(.n-thing-main__description) {
-  color: #a0aec0;
-}
-
-html:not(.dark) :deep(.n-thing-main__description) {
-  color: #6b7280;
-}
-
-/* 输入框样式 */
-:deep(.n-input) {
-  --n-color: #242b3d;
-  --n-color-focus: #242b3d;
-  --n-border: 1px solid #3a4459;
-  --n-border-hover: 1px solid #10b981;
-  --n-border-focus: 1px solid #10b981;
-  --n-text-color: #fff;
-  --n-placeholder-color: #64748b;
-}
-
-html:not(.dark) :deep(.n-input) {
-  --n-color: #ffffff;
-  --n-color-focus: #ffffff;
-  --n-border: 1px solid #e5e7eb;
-  --n-border-hover: 1px solid #10b981;
-  --n-border-focus: 1px solid #10b981;
-  --n-text-color: #1f2937;
-  --n-placeholder-color: #9ca3af;
-}
-
-:deep(.n-button--primary-type) {
-  --n-color: #10b981;
-  --n-color-hover: #059669;
-  --n-color-pressed: #047857;
-}
-
-/* 表格样式 */
-:deep(.n-data-table) {
-  --n-th-color: #242b3d;
-  --n-td-color: #1a1f2e;
-  --n-border-color: #3a4459;
-  --n-th-text-color: #a0aec0;
-  --n-td-text-color: #fff;
-}
-
-html:not(.dark) :deep(.n-data-table) {
-  --n-th-color: #f8fafc;
-  --n-td-color: #ffffff;
-  --n-border-color: #e5e7eb;
-  --n-th-text-color: #6b7280;
-  --n-td-text-color: #1f2937;
-}
-
-/* 分页样式 */
-:deep(.n-pagination) {
-  --n-item-color: transparent;
-  --n-item-color-hover: rgba(16, 185, 129, 0.1);
-  --n-item-color-active: #10b981;
-  --n-item-text-color: #a0aec0;
-  --n-item-text-color-active: #fff;
-  --n-item-border-color: #3a4459;
-}
-
-html:not(.dark) :deep(.n-pagination) {
-  --n-item-color: transparent;
-  --n-item-color-hover: rgba(16, 185, 129, 0.1);
-  --n-item-color-active: #10b981;
-  --n-item-text-color: #6b7280;
-  --n-item-text-color-active: #fff;
-  --n-item-border-color: #e5e7eb;
-}
-
-/* 弹窗样式 */
-:deep(.n-modal .n-card) {
-  --n-color: #242b3d;
-  --n-title-text-color: #fff;
-  --n-close-icon-color: #a0aec0;
-  --n-border-color: #3a4459;
-}
-
-html:not(.dark) :deep(.n-modal .n-card) {
-  --n-color: #ffffff;
-  --n-title-text-color: #1f2937;
-  --n-close-icon-color: #6b7280;
-  --n-border-color: #e5e7eb;
-}
-
-:deep(.n-form-item .n-form-item-label) {
-  --n-label-text-color: #a0aec0;
-}
-
-html:not(.dark) :deep(.n-form-item .n-form-item-label) {
-  --n-label-text-color: #6b7280;
-}
-
-/* 网段列表卡片 */
-.subnet-list-card :deep(.n-card__content) {
-  padding: 0 8px 12px 8px;
-}
-
-.subnet-list-card :deep(.n-thing-main__header) {
-  font-size: 13px;
-}
-
-.subnet-list-card :deep(.n-list-item) {
-  padding-left: 8px;
-  padding-right: 8px;
-}
+/* Subnet list card */
+.subnet-list-card :deep(.n-card__content) { padding: 0 8px 0 8px; }
+.subnet-list-card :deep(.n-thing-main__header) { font-size: 13px; }
+.subnet-list-card :deep(.n-list-item) { padding-left: 8px; padding-right: 8px; }
+.light-mode :deep(.n-thing-main__description) { color: #6b7280; }
 </style>

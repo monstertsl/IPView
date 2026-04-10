@@ -1,6 +1,6 @@
 from datetime import datetime
-from sqlalchemy import select, cast
-from sqlalchemy.dialects.postgresql import INET
+from sqlalchemy import select, cast, delete
+from sqlalchemy.dialects.postgresql import INET, CIDR
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 import uuid
 import ipaddress
@@ -172,36 +172,65 @@ def run_scan_task(self, task_id: str):
                     db.add(scan_log)
                     await db.commit()
 
-            # Auto-create /24 subnets for discovered IPs
+            # Auto-create /24 subnets for discovered IPs (only matching scan_subnets)
             try:
                 all_ips_result = await db.execute(select(IPRecord.ip_address))
                 all_ips = all_ips_result.scalars().all()
                 discovered_cidrs = set()
                 for ip_val in all_ips:
                     try:
-                        net = ipaddress.ip_network(f"{ip_val}/24", strict=False)
+                        ip_str = str(ip_val).split('/')[0]
+                        # Only include IPs that belong to active scan subnets
+                        if active_subnets and not is_ip_in_subnets(ip_str, active_subnets):
+                            continue
+                        net = ipaddress.ip_network(f"{ip_str}/24", strict=False)
                         discovered_cidrs.add(str(net))
                     except ValueError:
                         continue
 
-                existing_result = await db.execute(select(IPSubnet.cidr))
-                existing_cidrs = set(existing_result.scalars().all())
+                existing_result = await db.execute(select(IPSubnet))
+                existing_subnets = existing_result.scalars().all()
+                existing_cidrs = {s.cidr for s in existing_subnets}
 
+                # Add new matching subnets
                 for cidr in discovered_cidrs - existing_cidrs:
                     db.add(IPSubnet(cidr=cidr, description="自动发现"))
-                if discovered_cidrs - existing_cidrs:
-                    await db.commit()
+
+                # Remove auto-discovered subnets that no longer match any active scan subnet
+                if active_subnets:
+                    for s in existing_subnets:
+                        if s.description == "自动发现" and s.cidr not in discovered_cidrs:
+                            await db.execute(
+                                delete(IPRecord).where(
+                                    IPRecord.ip_address.op("<<=")(cast(s.cidr, CIDR))
+                                )
+                            )
+                            await db.execute(
+                                delete(IPSubnet).where(IPSubnet.id == s.id)
+                            )
+
+                await db.commit()
             except Exception:
                 await db.rollback()
 
             # Finalize task
-            task.status = TaskStatus.SUCCESS if not error_messages else TaskStatus.FAILED
+            success_count = len(switches) - len(error_messages)
+            if not error_messages:
+                task.status = TaskStatus.SUCCESS
+            elif success_count > 0:
+                task.status = TaskStatus.PARTIAL
+            else:
+                task.status = TaskStatus.FAILED
             task.finished_at = datetime.utcnow()
             task.duration = int((task.finished_at - task.started_at).total_seconds())
             task.total_ips = total_ips
             task.updated_ips = updated_ips
+            parts = []
+            if success_count > 0:
+                parts.append(f"{success_count} 台交换机扫描成功，共 {total_ips} 个 IP，更新 {updated_ips} 个")
             if error_messages:
-                task.error_message = "; ".join(error_messages)
+                parts.append(f"{len(error_messages)} 台失败: " + "; ".join(error_messages))
+            task.error_message = "，".join(parts) if parts else None
             await db.commit()
 
     import asyncio

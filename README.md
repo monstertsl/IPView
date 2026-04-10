@@ -11,13 +11,9 @@
 
 基于 **FastAPI + Vue 3 + PostgreSQL + Redis + Celery** 的企业级 IP 地址监控与管理系统，通过 SNMP 协议自动采集核心交换机 ARP 表，实时掌握全网 IP 使用状态。
 
----
-
-![demo.png](./demo.png)
-
 ## 功能特性
 
-- **IP 可视化监控** — 20 列网格化展示整个 /24 网段，在线/离线/空闲一目了然
+- **IP 可视化监控** — 20 列网格化展示整个 /24 网段（254 个 IP），在线/离线/空闲一目了然
 - **智能搜索** — 支持 IP、MAC 地址、网段 CIDR 快速定位
 - **SNMP 自动扫描** — 定时采集核心交换机 ARP 表，支持 SNMPv1/v2c/v3
 - **网段自动发现** — 扫描时自动根据发现的 IP 创建 /24 网段
@@ -39,7 +35,6 @@
 | 异步任务 | Celery 5 + Beat 定时调度 |
 | SNMP | pysnmp 6（lextudio） |
 | 部署 | Docker Compose |
-
 
 ## 快速启动
 

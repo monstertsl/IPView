@@ -11,6 +11,7 @@ class TaskStatus(str, enum.Enum):
     PENDING = "PENDING"
     RUNNING = "RUNNING"
     SUCCESS = "SUCCESS"
+    PARTIAL = "PARTIAL"
     FAILED = "FAILED"
 
 

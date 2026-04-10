@@ -49,12 +49,12 @@
                 <template #icon><n-icon><flash-outline /></n-icon></template>
                 立即扫描
               </n-button>
-              <n-alert v-if="lastTask" :type="lastTask.status === 'SUCCESS' ? 'success' : lastTask.status === 'FAILED' ? 'error' : 'info'"
+              <n-alert v-if="lastTask" :type="lastTask.status === 'SUCCESS' ? 'success' : lastTask.status === 'PARTIAL' ? 'warning' : lastTask.status === 'FAILED' ? 'error' : 'info'"
                 :title="`上次扫描: ${lastTask.status}`">
                 <template #default>
                   <n-text v-if="lastTask.triggered_by">触发方式：{{ lastTask.triggered_by }}</n-text><br/>
                   <n-text>更新 IPs：{{ lastTask.updated_ips }}，耗时：{{ lastTask.duration ?? '-' }}s</n-text>
-                  <n-text v-if="lastTask.error_message" type="error"><br/>错误：{{ lastTask.error_message }}</n-text>
+                  <n-text v-if="lastTask.error_message" :type="lastTask.status === 'FAILED' ? 'error' : lastTask.status === 'PARTIAL' ? 'warning' : 'success'"><br/>{{ lastTask.error_message }}</n-text>
                 </template>
               </n-alert>
             </n-space>
@@ -79,13 +79,6 @@
             <n-data-table :columns="subnetColumns" :data="subnets" :bordered="false" size="small" :max-height="200" />
           </n-card>
         </n-space>
-      </n-gi>
-
-      <!-- Task list -->
-      <n-gi :span="2">
-        <n-card title="扫描任务历史" :bordered="false">
-          <n-data-table :columns="taskColumns" :data="tasks" :bordered="false" size="small" />
-        </n-card>
       </n-gi>
     </n-grid>
 
@@ -137,6 +130,7 @@ import { useMessage, useDialog, NTag, NSpace, NButton, NText } from 'naive-ui'
 import { h } from 'vue'
 import api from '@/api'
 import type { ScanTask, ScanSubnet } from '@/types'
+import { formatDateTime } from '@/utils/time'
 import { FlashOutline, AddOutline, RefreshOutline } from '@vicons/ionicons5'
 
 const message = useMessage()
@@ -189,7 +183,7 @@ const subnetColumns = [
     title: '创建时间',
     key: 'created_at',
     width: 160,
-    render: (row: ScanSubnet) => new Date(row.created_at).toLocaleString('zh-CN')
+    render: (row: ScanSubnet) => formatDateTime(row.created_at)
   },
   {
     title: '操作',
@@ -211,18 +205,6 @@ const subnetColumns = [
       ]
     })
   }
-]
-
-const taskColumns = [
-  { title: 'ID', key: 'id', ellipsis: true, width: 120 },
-  { title: '状态', key: 'status', width: 90, render: (r: ScanTask) => h(NTag, { type: r.status === 'SUCCESS' ? 'success' : r.status === 'FAILED' ? 'error' : 'info', size: 'small' }, { default: () => r.status }) },
-  { title: '触发', key: 'triggered_by', width: 90 },
-  { title: '总 IPs', key: 'total_ips', width: 80 },
-  { title: '更新', key: 'updated_ips', width: 70 },
-  { title: '耗时(s)', key: 'duration', width: 70 },
-  { title: '错误信息', key: 'error_message', ellipsis: true },
-  { title: '开始时间', key: 'started_at', width: 160, render: (r: ScanTask) => r.started_at ? new Date(r.started_at).toLocaleString('zh-CN') : '-' },
-  { title: '创建时间', key: 'created_at', width: 160, render: (r: ScanTask) => new Date(r.created_at).toLocaleString('zh-CN') },
 ]
 
 onMounted(async () => {
