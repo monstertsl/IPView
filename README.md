@@ -56,7 +56,6 @@ docker-compose up -d
 |------|------|
 | 前端 | http://localhost:3000 |
 | 后端 API | http://localhost:8000 |
-| API 文档 | http://localhost:8000/docs |
 
 默认管理员账号：`admin` / `admin123`
 
