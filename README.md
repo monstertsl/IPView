@@ -47,7 +47,7 @@
 ```bash
 git clone https://github.com/monstertsl/IPView.git
 cd IPView
-docker-compose up -d
+docker compose up -d
 ```
 
 启动后访问：
