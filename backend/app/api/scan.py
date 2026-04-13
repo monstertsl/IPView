@@ -52,18 +52,52 @@ async def update_scan_config(body: SystemConfigUpdate, db: AsyncSession = Depend
 async def list_tasks(
     page: int = Query(1, ge=1),
     page_size: int = Query(10000, ge=1),
+    status: str | None = Query(None, description="按状态过滤: PENDING/RUNNING/SUCCESS/PARTIAL/FAILED"),
+    triggered_by: str | None = Query(None, description="按触发方式过滤: SYSTEM/MANUAL"),
+    start_time: str | None = Query(None, description="开始时间 (ISO格式)"),
+    end_time: str | None = Query(None, description="结束时间 (ISO格式)"),
     db: AsyncSession = Depends(get_db),
     current_user=Depends(require_role("admin"))
 ):
-    # Count total
     from sqlalchemy import func
-    count_result = await db.execute(select(func.count()).select_from(ScanTask))
+    from datetime import datetime
+
+    # Build filters
+    conditions = []
+    if status:
+        try:
+            conditions.append(ScanTask.status == TaskStatus(status))
+        except ValueError:
+            pass
+    if triggered_by:
+        try:
+            conditions.append(ScanTask.triggered_by == TriggerType(triggered_by))
+        except ValueError:
+            pass
+    if start_time:
+        try:
+            conditions.append(ScanTask.created_at >= datetime.fromisoformat(start_time))
+        except (ValueError, TypeError):
+            pass
+    if end_time:
+        try:
+            conditions.append(ScanTask.created_at <= datetime.fromisoformat(end_time))
+        except (ValueError, TypeError):
+            pass
+
+    # Count total with filters
+    count_q = select(func.count()).select_from(ScanTask)
+    if conditions:
+        count_q = count_q.where(*conditions)
+    count_result = await db.execute(count_q)
     total = count_result.scalar() or 0
 
-    result = await db.execute(
-        select(ScanTask).order_by(ScanTask.created_at.desc())
-        .offset((page - 1) * page_size).limit(page_size)
-    )
+    # Query with filters
+    q = select(ScanTask).order_by(ScanTask.created_at.desc())
+    if conditions:
+        q = q.where(*conditions)
+    q = q.offset((page - 1) * page_size).limit(page_size)
+    result = await db.execute(q)
     tasks = result.scalars().all()
     items = [ScanTaskResponse(
         id=str(t.id), status=t.status, started_at=t.started_at,

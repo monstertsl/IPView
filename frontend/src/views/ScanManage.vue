@@ -68,9 +68,6 @@
                   <template #icon><n-icon><add-outline /></n-icon></template>
                   添加网段
                 </n-button>
-                <n-button quaternary size="small" @click="loadSubnets">
-                  <template #icon><n-icon><refresh-outline /></n-icon></template>
-                </n-button>
               </n-space>
             </template>
             <n-alert type="info" title="说明" closable style="margin-bottom: 12px">
@@ -131,7 +128,7 @@ import { h } from 'vue'
 import api from '@/api'
 import type { ScanTask, ScanSubnet } from '@/types'
 import { formatDateTime } from '@/utils/time'
-import { FlashOutline, AddOutline, RefreshOutline } from '@vicons/ionicons5'
+import { FlashOutline, AddOutline } from '@vicons/ionicons5'
 
 const message = useMessage()
 const dialog = useDialog()
@@ -161,14 +158,13 @@ const subnetColumns = [
   {
     title: '网段 CIDR',
     key: 'cidr',
-    width: 180,
-    render: (row: ScanSubnet) => h('span', { style: { fontFamily: 'monospace' } }, row.cidr)
+    width: 130,
+    render: (row: ScanSubnet) => h('span', row.cidr)
   },
   {
     title: '描述',
     key: 'description',
-    ellipsis: { tooltip: true },
-    render: (row: ScanSubnet) => row.description || '-'
+    render: (row: ScanSubnet) => h('span', row.description || '-')
   },
   {
     title: '状态',

@@ -254,7 +254,10 @@ async def search_ip(
         select(IPSubnet).where(func.split_part(IPSubnet.cidr, '/', 1).contains(q)).order_by(cast(IPSubnet.cidr, CIDR))
     )
     fuzzy_subnets = subnet_result.scalars().all()
-    if len(fuzzy_subnets) >= 1:
+    if len(fuzzy_subnets) == 1:
+        s = fuzzy_subnets[0]
+        return {"type": "subnet", "subnet_id": str(s.id), "cidr": s.cidr}
+    elif len(fuzzy_subnets) > 1:
         return {
             "type": "subnets",
             "subnets": [{"subnet_id": str(s.id), "cidr": s.cidr} for s in fuzzy_subnets]
