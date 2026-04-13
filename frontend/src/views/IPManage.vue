@@ -47,9 +47,9 @@
             <template #suffix><n-tag type="success" size="small">使用中</n-tag></template>
           </n-statistic></n-gi>
           <n-gi><n-statistic label="离线 (OFFLINE)" :value="bulkData.offline">
-            <template #suffix><n-tag type="warning" size="small">闲置</n-tag></template>
+            <template #suffix><n-tag type="warning" size="small">离线</n-tag></template>
           </n-statistic></n-gi>
-          <n-gi><n-statistic label="未用 (UNUSED)" :value="bulkData.unused">
+          <n-gi><n-statistic label="未使用 (UNUSED)" :value="bulkData.unused">
             <template #suffix><n-tag type="default" size="small">空闲</n-tag></template>
           </n-statistic></n-gi>
           <n-gi><n-statistic label="总计" :value="bulkData.total" /></n-gi>

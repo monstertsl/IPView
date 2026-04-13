@@ -6,9 +6,8 @@
         <n-card title="扫描配置" :bordered="false">
           <n-form :model="config" label-placement="top" v-if="config">
             <n-divider title-placement="left" style="font-size:12px;margin:8px 0">IP 状态阈值</n-divider>
-            <n-grid :cols="3" :x-gap="12">
+            <n-grid :cols="2" :x-gap="12">
               <n-gi><n-form-item label="在线阈值（天）"><n-input-number v-model:value="config.online_days" :min="1" :max="365" /></n-form-item></n-gi>
-              <n-gi><n-form-item label="离线阈值（天）"><n-input-number v-model:value="config.offline_days" :min="1" :max="365" /></n-form-item></n-gi>
               <n-gi><n-form-item label="清理阈值（天）"><n-input-number v-model:value="config.cleanup_days" :min="1" :max="365" /></n-form-item></n-gi>
             </n-grid>
             <n-divider title-placement="left" style="font-size:12px;margin:8px 0">安全策略</n-divider>

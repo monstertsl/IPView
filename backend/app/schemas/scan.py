@@ -7,7 +7,6 @@ import ipaddress
 
 class ScanConfigUpdate(BaseModel):
     online_days: int = Field(default=7, ge=1, le=365)
-    offline_days: int = Field(default=15, ge=1, le=365)
     cleanup_days: int = Field(default=30, ge=1, le=365)
     snmp_timeout: int = Field(default=3, ge=1, le=60)
     snmp_retry: int = Field(default=2, ge=0, le=10)

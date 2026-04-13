@@ -36,13 +36,13 @@ def is_ip_in_subnets(ip_str: str, subnets: list) -> bool:
         return False
 
 
-def _compute_status(last_seen: datetime, online_days: int, offline_days: int) -> IPStatus:
+def _compute_status(last_seen: datetime, online_days: int, cleanup_days: int) -> IPStatus:
     """Compute IP status based on last_seen timestamp."""
     now = datetime.utcnow()
     delta = (now - last_seen).days
     if delta <= online_days:
         return IPStatus.ONLINE
-    elif delta <= offline_days:
+    elif delta <= cleanup_days:
         return IPStatus.OFFLINE
     else:
         return IPStatus.UNUSED
@@ -71,7 +71,7 @@ def run_scan_task(self, task_id: str):
             cfg_result = await db.execute(select(SystemConfig).limit(1))
             cfg = cfg_result.scalar_one_or_none()
             online_days = cfg.online_days if cfg else settings.ONLINE_DAYS
-            offline_days = cfg.offline_days if cfg else settings.OFFLINE_DAYS
+            cleanup_days = cfg.cleanup_days if cfg else settings.CLEANUP_DAYS
 
             # Get active subnets for filtering
             subnet_result = await db.execute(select(ScanSubnet).where(ScanSubnet.is_active == True))
@@ -115,7 +115,7 @@ def run_scan_task(self, task_id: str):
                         
                         result = await db.execute(select(IPRecord).where(IPRecord.ip_address == cast(ip_str, INET)))
                         record = result.scalar_one_or_none()
-                        new_status = _compute_status(now, online_days, offline_days)  # just scanned → ONLINE
+                        new_status = _compute_status(now, online_days, cleanup_days)  # just scanned → ONLINE
 
                         if record:
                             # Check MAC change

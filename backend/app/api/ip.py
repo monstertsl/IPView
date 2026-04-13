@@ -28,20 +28,18 @@ async def _get_status(last_seen: Optional[datetime], db: AsyncSession) -> IPStat
     if not cfg:
         cfg_dict = {
             "online_days": settings.ONLINE_DAYS,
-            "offline_days": settings.OFFLINE_DAYS,
             "cleanup_days": settings.CLEANUP_DAYS,
         }
     else:
         cfg_dict = {
             "online_days": cfg.online_days,
-            "offline_days": cfg.offline_days,
             "cleanup_days": cfg.cleanup_days,
         }
     now = datetime.now(timezone.utc)
     delta = (now - last_seen.replace(tzinfo=timezone.utc)).days
     if delta <= cfg_dict["online_days"]:
         return IPStatus.ONLINE
-    elif delta <= cfg_dict["offline_days"]:
+    elif delta <= cfg_dict["cleanup_days"]:
         return IPStatus.OFFLINE
     else:
         return IPStatus.UNUSED

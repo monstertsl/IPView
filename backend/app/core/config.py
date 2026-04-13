@@ -24,7 +24,6 @@ class Settings(BaseSettings):
 
     # System Config defaults
     ONLINE_DAYS: int = 7
-    OFFLINE_DAYS: int = 15
     CLEANUP_DAYS: int = 30
     LOGIN_FAIL_LIMIT: int = 5
     INACTIVE_DAYS_LIMIT: int = 90

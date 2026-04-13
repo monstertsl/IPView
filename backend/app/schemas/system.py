@@ -5,7 +5,6 @@ from datetime import datetime
 
 class SystemConfigResponse(BaseModel):
     online_days: int
-    offline_days: int
     cleanup_days: int
     login_fail_limit: int
     inactive_days_limit: int
@@ -21,7 +20,6 @@ class SystemConfigResponse(BaseModel):
 
 class SystemConfigUpdate(BaseModel):
     online_days: int = Field(default=7, ge=1, le=365)
-    offline_days: int = Field(default=15, ge=1, le=365)
     cleanup_days: int = Field(default=30, ge=1, le=365)
     login_fail_limit: int = Field(default=5, ge=1, le=20)
     inactive_days_limit: int = Field(default=90, ge=7, le=365)

@@ -12,7 +12,6 @@ class SystemConfig(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     online_days: Mapped[int] = mapped_column(Integer, default=7, nullable=False)
-    offline_days: Mapped[int] = mapped_column(Integer, default=15, nullable=False)
     cleanup_days: Mapped[int] = mapped_column(Integer, default=30, nullable=False)
     login_fail_limit: Mapped[int] = mapped_column(Integer, default=5, nullable=False)
     inactive_days_limit: Mapped[int] = mapped_column(Integer, default=90, nullable=False)
