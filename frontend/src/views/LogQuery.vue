@@ -43,6 +43,7 @@
             :bordered="false" 
             size="small"
             :loading="loadingScan"
+            :pagination="scanPagination"
             class="log-table"
           />
         </n-card>
@@ -65,7 +66,21 @@ const loadingScan = ref(false)
 const loginLogs = ref<any[]>([])
 const scanLogs = ref<any[]>([])
 
-const loginQ = reactive({ 
+function createPagination() {
+  const pagination = reactive({
+    page: 1,
+    pageSize: 10,
+    showSizePicker: true,
+    pageSizes: [10, 20, 50, 100],
+    onUpdatePage: (p: number) => { pagination.page = p },
+    onUpdatePageSize: (ps: number) => { pagination.pageSize = ps; pagination.page = 1 },
+  })
+  return pagination
+}
+
+const loginPagination = createPagination()
+const scanPagination = createPagination()
+const loginQ = reactive({
   username: '', 
   success: null as null | boolean, 
   ip_address: '', 
@@ -76,22 +91,6 @@ const successOptions = [
   { label: '成功', value: true }, 
   { label: '失败', value: false }
 ]
-
-const loginPagination = reactive({ 
-  page: 1, 
-  pageSize: 20,
-  showSizePicker: true,
-  pageSizes: [10, 20, 50, 100],
-  onChange: (page: number) => {
-    loginPagination.page = page
-    loadLoginLogs()
-  },
-  onUpdatePageSize: (pageSize: number) => {
-    loginPagination.pageSize = pageSize
-    loginPagination.page = 1
-    loadLoginLogs()
-  }
-})
 
 const loginColumns = [
   { title: '用户名', key: 'username', width: 120 },
@@ -157,10 +156,7 @@ onMounted(async () => {
 async function loadLoginLogs() {
   loadingLogin.value = true
   try {
-    const params: any = { 
-      page: loginPagination.page, 
-      page_size: loginPagination.pageSize 
-    }
+    const params: any = {}
     if (loginQ.username) params.username = loginQ.username
     if (loginQ.success !== null) params.success = loginQ.success
     if (loginQ.ip_address) params.ip_address = loginQ.ip_address
@@ -169,9 +165,7 @@ async function loadLoginLogs() {
       params.end_date = new Date(loginQ.range[1]).toISOString()
     }
     const res = await api.get('/logs/login', { params })
-    
-    // 处理返回数据
-    if (res.data && res.data.items) {
+    if (res.data?.items) {
       loginLogs.value = res.data.items
     } else if (Array.isArray(res.data)) {
       loginLogs.value = res.data
@@ -179,7 +173,6 @@ async function loadLoginLogs() {
       loginLogs.value = []
     }
   } catch (e: any) { 
-    console.error('加载登录日志失败:', e)
     message.error(e.response?.data?.detail || '加载登录日志失败') 
     loginLogs.value = []
   } finally {
@@ -191,9 +184,8 @@ async function loadScanLogs() {
   loadingScan.value = true
   try {
     const res = await api.get('/scan/tasks')
-    scanLogs.value = Array.isArray(res.data) ? res.data : []
+    scanLogs.value = res.data?.items || (Array.isArray(res.data) ? res.data : [])
   } catch (e: any) { 
-    console.error('加载扫描日志失败:', e)
     scanLogs.value = []
   } finally {
     loadingScan.value = false

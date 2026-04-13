@@ -26,14 +26,6 @@ class LoginLogQuery(BaseModel):
     page_size: int = Field(default=20, ge=1, le=100)
 
 
-class ScanLogQuery(BaseModel):
-    status: Optional[str] = None
-    start_date: Optional[datetime] = None
-    end_date: Optional[datetime] = None
-    page: int = Field(default=1, ge=1)
-    page_size: int = Field(default=20, ge=1, le=100)
-
-
 class CleanupRequest(BaseModel):
     type: Literal["login", "scan"]
     days: int = Field(default=30, ge=1, le=365)

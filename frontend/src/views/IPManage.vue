@@ -26,7 +26,7 @@
       <div class="ip-layout-right">
         <!-- Search -->
         <n-space style="margin-bottom: 12px">
-          <n-input v-model:value="searchQ" placeholder="搜索 IP / MAC / 网段" clearable style="width: 300px" @keyup.enter="handleSearch" @clear="searchResult = null; fuzzySubnets = null">
+          <n-input v-model:value="searchQ" placeholder="搜索 IP / MAC / 网段" clearable style="width: 300px" @keyup.enter="handleSearch" @clear="searchResult = null; searchData = null; fuzzySubnets = null">
             <template #prefix><n-icon><search-outline /></n-icon></template>
           </n-input>
           <n-button type="primary" @click="handleSearch">搜索</n-button>
@@ -86,8 +86,36 @@
               <span class="ip-text">{{ ip.ip_address.split('.').pop() }}</span>
             </div>
           </div>
-          <!-- Search result table -->
-          <n-data-table v-else :columns="searchResultColumns" :data="searchResult" :bordered="false" size="small" />
+          <!-- Search result -->
+          <div v-else class="search-result-detail">
+            <!-- IP search result -->
+            <template v-if="searchData?.type === 'ip'">
+              <n-descriptions :column="2" bordered size="small" label-placement="left" style="margin-bottom: 12px;">
+                <n-descriptions-item label="IP 地址">{{ searchData.record.ip_address }}</n-descriptions-item>
+                <n-descriptions-item label="状态"><n-tag :type="statusType(searchData.record.status)" size="small">{{ searchData.record.status || 'UNUSED' }}</n-tag></n-descriptions-item>
+                <n-descriptions-item label="当前 MAC">{{ searchData.record.mac_address || '无' }}</n-descriptions-item>
+                <n-descriptions-item label="最后发现">{{ formatTime(searchData.record.last_seen) }}</n-descriptions-item>
+              </n-descriptions>
+              <n-text strong style="display:block; margin-bottom: 6px;">历史 MAC 记录（最近 5 条）</n-text>
+              <n-data-table v-if="searchData.history?.length" :columns="ipHistoryColumns" :data="searchData.history" :bordered="false" size="small" />
+              <n-text v-else depth="3">无历史记录</n-text>
+            </template>
+            <!-- MAC search result -->
+            <template v-else-if="searchData?.type === 'mac'">
+              <n-descriptions :column="2" bordered size="small" label-placement="left" style="margin-bottom: 12px;">
+                <n-descriptions-item label="MAC 地址">{{ searchQ }}</n-descriptions-item>
+                <n-descriptions-item label="当前 IP">
+                  <span v-for="(ip, i) in (searchData.current_ips || [])" :key="ip">
+                    <n-tag type="success" size="small" style="margin-right: 4px;">{{ ip }}</n-tag>
+                  </span>
+                  <span v-if="!searchData.current_ips?.length">无</span>
+                </n-descriptions-item>
+              </n-descriptions>
+              <n-text strong style="display:block; margin-bottom: 6px;">历史 IP 记录（最近 5 条）</n-text>
+              <n-data-table v-if="searchData.history?.length" :columns="macHistoryColumns" :data="searchData.history" :bordered="false" size="small" />
+              <n-text v-else depth="3">无历史记录</n-text>
+            </template>
+          </div>
         </n-card>
       </div>
     </div>
@@ -155,12 +183,27 @@ const subnets = ref<IPSubnet[]>([])
 const selectedSubnet = ref<IPSubnet | null>(null)
 const bulkData = ref({ subnet: '', total: 0, online: 0, offline: 0, unused: 0, records: [] as IPRecord[] })
 const searchQ = ref('')
-const searchResult = ref<IPRecord[] | null>(null)
-const searchResultColumns = [
-  { title: 'IP', key: 'ip_address' },
-  { title: 'MAC', key: 'mac_address' },
-  { title: '状态', key: 'status', render: (row: any) => h('n-tag', { type: statusType(row.status), size: 'small' }, { default: () => row.status }) },
-  { title: '最后发现', key: 'last_seen', render: (row: any) => formatTime(row.last_seen) }
+const searchResult = ref<any | null>(null)  // kept for v-if in template
+const searchData = ref<any | null>(null)
+
+const ipHistoryColumns = [
+  { title: 'MAC 地址', key: 'mac_address', render: (row: any) => {
+    const isCurrent = searchData.value?.current_mac && row.mac_address.toUpperCase() === searchData.value.current_mac.toUpperCase()
+    return h('span', { style: isCurrent ? { color: '#18a058', fontWeight: '600' } : {} }, 
+      isCurrent ? `${row.mac_address} (当前)` : row.mac_address)
+  }},
+  { title: '事件', key: 'event_type', width: 120 },
+  { title: '时间', key: 'seen_at', width: 180, render: (row: any) => formatTime(row.seen_at) },
+]
+
+const macHistoryColumns = [
+  { title: 'IP 地址', key: 'ip_address', render: (row: any) => {
+    const isCurrent = (searchData.value?.current_ips || []).includes(row.ip_address)
+    return h('span', { style: isCurrent ? { color: '#18a058', fontWeight: '600' } : {} },
+      isCurrent ? `${row.ip_address} (当前)` : row.ip_address)
+  }},
+  { title: '事件', key: 'event_type', width: 120 },
+  { title: '时间', key: 'seen_at', width: 180, render: (row: any) => formatTime(row.seen_at) },
 ]
 
 // Pagination
@@ -206,6 +249,7 @@ async function loadSubnets() {
 async function selectSubnet(sub: IPSubnet) {
   selectedSubnet.value = sub
   searchResult.value = null
+  searchData.value = null
   tooltipCache.value = {}  // clear cache on subnet switch
   try {
     const res = await api.get<IPBulkResponse>(`/ip/subnets/${sub.id}/ips`)
@@ -229,20 +273,20 @@ async function addSubnet() {
 }
 
 async function handleSearch() {
-  if (!searchQ.value.trim()) { searchResult.value = null; fuzzySubnets.value = null; return }
+  if (!searchQ.value.trim()) { searchResult.value = null; searchData.value = null; fuzzySubnets.value = null; return }
   try {
     const res = await api.get('/ip/search', { params: { q: searchQ.value } })
     fuzzySubnets.value = null
-    if (res.data.type === 'ip') {
-      searchResult.value = [res.data.record]
-    } else if (res.data.type === 'mac') {
-      searchResult.value = res.data.records
+    if (res.data.type === 'ip' || res.data.type === 'mac') {
+      searchData.value = res.data
+      searchResult.value = res.data  // truthy to trigger v-else
     } else if (res.data.type === 'subnet') {
       // Find and switch to the subnet
       const targetSubnet = subnets.value.find(s => s.id === res.data.subnet_id)
       if (targetSubnet) {
         await selectSubnet(targetSubnet)
         searchResult.value = null
+        searchData.value = null
         message.success(`已切换到网段: ${targetSubnet.cidr}`)
       } else {
         message.error('网段未找到')
@@ -250,9 +294,11 @@ async function handleSearch() {
     } else if (res.data.type === 'subnets') {
       // Multiple fuzzy matches, show selection list
       searchResult.value = null
+      searchData.value = null
       fuzzySubnets.value = res.data.subnets
     } else {
-      searchResult.value = []
+      searchResult.value = null
+      searchData.value = null
       fuzzySubnets.value = null
       message.info('未找到结果')
     }

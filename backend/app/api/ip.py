@@ -163,7 +163,24 @@ async def search_ip(
         result = await db.execute(select(IPRecord).where(IPRecord.ip_address == cast(q, INET)))
         record = result.scalar_one_or_none()
         if record:
-            return {"type": "ip", "record": _iprecord_to_response(record)}
+            # Get MAC history for this IP (max 5, newest first)
+            hist_result = await db.execute(
+                select(IPEvent)
+                .where(IPEvent.ip_address == cast(q, INET))
+                .order_by(IPEvent.seen_at.desc())
+                .limit(5)
+            )
+            events = hist_result.scalars().all()
+            history = [
+                {"mac_address": e.mac_address, "event_type": e.event_type.value if hasattr(e.event_type, 'value') else str(e.event_type), "seen_at": e.seen_at.isoformat() if e.seen_at else None}
+                for e in events
+            ]
+            return {
+                "type": "ip",
+                "record": _iprecord_to_response(record),
+                "history": history,
+                "current_mac": record.mac_address,
+            }
         # IP not found in DB → fall through to subnet search
     except ValueError:
         pass
@@ -175,8 +192,26 @@ async def search_ip(
             select(IPRecord).where(func.upper(IPRecord.mac_address) == q.upper())
         )
         records = result.scalars().all()
-        if records:
-            return {"type": "mac", "records": [_iprecord_to_response(r) for r in records]}
+        # Also find historical IPs that used this MAC (from ip_events)
+        hist_result = await db.execute(
+            select(IPEvent)
+            .where(func.upper(IPEvent.mac_address) == q.upper())
+            .order_by(IPEvent.seen_at.desc())
+            .limit(5)
+        )
+        events = hist_result.scalars().all()
+        history = [
+            {"ip_address": str(e.ip_address), "event_type": e.event_type.value if hasattr(e.event_type, 'value') else str(e.event_type), "seen_at": e.seen_at.isoformat() if e.seen_at else None}
+            for e in events
+        ]
+        # Current IPs using this MAC
+        current_ips = [str(r.ip_address).split('/')[0] for r in records]
+        return {
+            "type": "mac",
+            "records": [_iprecord_to_response(r) for r in records],
+            "history": history,
+            "current_ips": current_ips,
+        }
 
     # 3) Try exact CIDR match
     subnet_result = await db.execute(select(IPSubnet).where(IPSubnet.cidr == q))

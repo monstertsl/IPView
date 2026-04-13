@@ -1,18 +1,17 @@
 from datetime import datetime, timedelta
 from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
-import uuid
 
 from app.tasks.celery_config import celery
 from app.core.config import settings
 from app.models.log.log_model import LoginLog
-from app.models.scan.scan_model import ScanLog, ScanTask, TriggerType
+from app.models.scan.scan_model import ScanTask, TriggerType
 from app.models.system.system_model import SystemConfig
 
 
 @celery.task
 def cleanup_old_logs():
-    """Daily cleanup — removes login/scan logs older than configured retention period."""
+    """Daily cleanup — removes login logs and scan tasks older than configured retention period."""
     async def _cleanup():
         engine = create_async_engine(settings.DATABASE_URL, echo=False)
         session_maker = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
@@ -27,7 +26,7 @@ def cleanup_old_logs():
             scan_cutoff = datetime.utcnow() - timedelta(days=scan_retention)
 
             r1 = await db.execute(delete(LoginLog).where(LoginLog.created_at < login_cutoff))
-            r2 = await db.execute(delete(ScanLog).where(ScanLog.created_at < scan_cutoff))
+            r2 = await db.execute(delete(ScanTask).where(ScanTask.created_at < scan_cutoff))
             await db.commit()
             return {"login_deleted": r1.rowcount, "scan_deleted": r2.rowcount}
 

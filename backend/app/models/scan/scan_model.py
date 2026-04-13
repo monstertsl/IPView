@@ -36,13 +36,3 @@ class ScanTask(Base):
     triggered_by: Mapped[TriggerType] = mapped_column(SAEnum(TriggerType), default=TriggerType.MANUAL)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.utcnow(), nullable=False)
 
-
-class ScanLog(Base):
-    __tablename__ = "scan_logs"
-
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    task_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)
-    status: Mapped[String] = mapped_column(String(20), nullable=False)
-    message: Mapped[str] = mapped_column(Text, nullable=True)
-    duration: Mapped[int] = mapped_column(Integer, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.utcnow(), nullable=False)

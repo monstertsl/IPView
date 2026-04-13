@@ -29,18 +29,6 @@ class ScanTaskResponse(BaseModel):
         from_attributes = True
 
 
-class ScanLogResponse(BaseModel):
-    id: str
-    task_id: str
-    status: str
-    message: Optional[str]
-    duration: Optional[int]
-    created_at: datetime
-
-    class Config:
-        from_attributes = True
-
-
 # ============ 入库网段 Schema ============
 
 class ScanSubnetCreate(BaseModel):

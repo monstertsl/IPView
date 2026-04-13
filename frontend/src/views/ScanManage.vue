@@ -229,9 +229,10 @@ async function saveConfig() {
 
 async function loadTasks() {
   try {
-    const res = await api.get<ScanTask[]>('/scan/tasks')
-    tasks.value = res.data
-    if (tasks.value.length > 0) lastTask.value = tasks.value[0]
+    const res = await api.get('/scan/tasks', { params: { page: 1, page_size: 1 } })
+    const items = res.data?.items || res.data || []
+    tasks.value = items
+    if (items.length > 0) lastTask.value = items[0]
   } catch { /* ignore */ }
 }
 

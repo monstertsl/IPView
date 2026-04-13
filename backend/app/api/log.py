@@ -8,8 +8,8 @@ from datetime import datetime, timedelta
 from app.core.database import get_db
 from app.core.auth import get_current_user, require_role
 from app.models.log.log_model import LoginLog
-from app.models.scan.scan_model import ScanLog
-from app.schemas.log import LoginLogResponse, LoginLogQuery, ScanLogQuery, CleanupRequest, CleanupResponse
+from app.models.scan.scan_model import ScanTask
+from app.schemas.log import LoginLogResponse, LoginLogQuery, CleanupRequest, CleanupResponse
 
 router = APIRouter(prefix="/api/logs", tags=["日志查询"])
 
@@ -22,7 +22,7 @@ async def list_login_logs(
     start_date: Optional[datetime] = None,
     end_date: Optional[datetime] = None,
     page: int = Query(1, ge=1),
-    page_size: int = Query(20, ge=1, le=100),
+    page_size: int = Query(10000, ge=1),
     db: AsyncSession = Depends(get_db),
     current_user=Depends(require_role("admin"))
 ):
@@ -77,7 +77,7 @@ async def cleanup_logs(
         deleted = result.rowcount
     else:
         result = await db.execute(
-            delete(ScanLog).where(ScanLog.created_at < cutoff)
+            delete(ScanTask).where(ScanTask.created_at < cutoff)
         )
         deleted = result.rowcount
 

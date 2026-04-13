@@ -17,12 +17,12 @@
 
 ## 功能特性
 
-- **IP 可视化监控** — 20 列网格化展示整个 /24 网段（254 个 IP），在线/离线/空闲一目了然
-- **智能搜索** — 支持 IP、MAC 地址、网段 CIDR 快速定位
-- **SNMP 自动扫描** — 定时采集核心交换机 ARP 表，支持 SNMPv1/v2c/v3
-- **网段自动发现** — 扫描时自动根据发现的 IP 创建 /24 网段
-- **入库网段过滤** — 可配置仅允许指定网段的 IP 入库
-- **MAC 变更追踪** — Tooltip 悬浮展示 IP 历史 MAC 变化记录
+- **IP 可视化监控** — 20 列网格化展示整个 /24 网段（256 个 IP），在线/离线/空闲一目了然
+- **智能搜索** — 支持 IP、MAC 地址、网段 CIDR 精确/模糊搜索，搜索 IP 可查看历史 MAC 变化，搜索 MAC 可查看历史分配 IP
+- **SNMP 自动扫描** — 定时采集核心交换机 ARP 表，支持 SNMPv1/v2c/v3，三态状态（SUCCESS/PARTIAL/FAILED）
+- **网段自动发现** — 扫描时自动根据发现的 IP 创建 /24 网段，仅创建匹配入库网段的网段
+- **入库网段过滤** — 可配置仅允许指定网段的 IP 入库，不匹配的自动清理
+- **MAC 变更追踪** — Tooltip 悬浮 + 搜索结果均展示 IP 历史 MAC 变化记录（最多 5 条），当前使用绿色标注
 - **完整审计日志** — 登录日志 + 扫描日志，支持自动/手动清理
 - **RBAC 权限控制** — admin / user 两级角色
 - **TOTP 多因素认证** — 支持 Google Authenticator 等 TOTP 应用
@@ -113,7 +113,9 @@ IPView/
 │   ├── src/
 │   │   ├── api/            # Axios 实例与拦截器
 │   │   ├── router/         # Vue Router 路由配置
+│   │   ├── stores/         # Pinia 状态管理（auth, theme）
 │   │   ├── types/          # TypeScript 类型定义
+│   │   ├── utils/          # 工具函数（时间格式化等）
 │   │   ├── views/          # 页面组件
 │   │   ├── App.vue
 │   │   └── main.ts
@@ -133,8 +135,7 @@ IPView/
 | `ip_records` | IP 当前状态（PostgreSQL INET 原生类型） |
 | `ip_events` | IP 历史事件（MAC 变更追踪） |
 | `scan_subnets` | 入库网段过滤规则 |
-| `scan_tasks` | 扫描任务记录 |
-| `scan_logs` | 扫描执行日志 |
+| `scan_tasks` | 扫描任务记录（SUCCESS/PARTIAL/FAILED 三态） |
 | `login_logs` | 用户登录日志 |
 | `system_config` | 系统全局配置 |
 
@@ -155,8 +156,8 @@ IPView/
 | GET | `/api/ip/subnets` | 网段列表 |
 | POST | `/api/ip/subnets` | 添加网段（自动预填充 IP） |
 | DELETE | `/api/ip/subnets/{id}` | 删除网段 |
-| GET | `/api/ip/subnets/{id}/ips` | 获取网段完整 IP 列表（254 个） |
-| GET | `/api/ip/search?q=` | 搜索 IP / MAC / 网段 |
+| GET | `/api/ip/subnets/{id}/ips` | 获取网段完整 IP 列表（256 个） |
+| GET | `/api/ip/search?q=` | 搜索 IP / MAC / 网段（含历史记录） |
 | GET | `/api/ip/ip/{ip}/tooltip` | IP 详情与历史 MAC |
 
 ### 用户管理（admin）
@@ -187,8 +188,7 @@ IPView/
 | GET | `/api/scan/config` | 获取扫描配置 |
 | PATCH | `/api/scan/config` | 更新扫描配置 |
 | POST | `/api/scan/tasks/now` | 立即执行扫描 |
-| GET | `/api/scan/tasks` | 扫描任务历史 |
-| GET | `/api/scan/logs` | 扫描日志 |
+| GET | `/api/scan/tasks` | 扫描任务历史（SUCCESS/PARTIAL/FAILED） |
 | GET/POST/DELETE | `/api/scan/subnets` | 入库网段管理 |
 
 ### 日志查询
@@ -196,7 +196,7 @@ IPView/
 | 方法 | 路径 | 说明 |
 |------|------|------|
 | GET | `/api/logs/login` | 登录日志（分页） |
-| GET | `/api/scan/logs` | 扫描日志 |
+| GET | `/api/scan/tasks` | 扫描日志（任务级汇总） |
 | POST | `/api/logs/cleanup` | 手动清理日志 |
 
 ## 权限矩阵

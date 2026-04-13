@@ -75,9 +75,11 @@ const lightThemeOverrides: GlobalThemeOverrides = {
     itemColor: 'transparent',
     itemColorHover: 'rgba(16, 185, 129, 0.1)',
     itemColorActive: '#10b981',
-    itemTextColor: '#6b7280',
+    itemTextColor: '#374151',
+    itemTextColorHover: '#1f2937',
     itemTextColorActive: '#fff',
     itemBorderColor: '#e5e7eb',
+    itemBorderActive: '1px solid #10b981',
   },
   Tabs: {
     tabTextColorLine: '#6b7280',
@@ -224,5 +226,43 @@ html.dark ::-webkit-scrollbar-thumb {
 }
 html.dark ::-webkit-scrollbar-thumb:hover {
   background: rgba(255, 255, 255, 0.25);
+}
+
+/* 浅色模式下分页器可读性兜底 */
+html:not(.dark) .n-pagination .n-pagination-item:not(.n-pagination-item--active),
+html:not(.dark) .n-pagination .n-pagination-item:not(.n-pagination-item--active) * ,
+html:not(.dark) .n-pagination .n-pagination-prefix,
+html:not(.dark) .n-pagination .n-pagination-suffix,
+html:not(.dark) .n-pagination .n-base-selection-label {
+  color: #374151 !important;
+}
+
+html:not(.dark) .n-pagination .n-pagination-item:not(.n-pagination-item--active):not(.n-pagination-item--disabled):hover,
+html:not(.dark) .n-pagination .n-pagination-item:not(.n-pagination-item--active):not(.n-pagination-item--disabled):hover *,
+html:not(.dark) .n-pagination .n-base-selection:hover .n-base-selection-label,
+html:not(.dark) .n-pagination .n-base-selection.n-base-selection--active .n-base-selection-label {
+  color: #1f2937 !important;
+}
+
+html:not(.dark) .n-pagination .n-pagination-item.n-pagination-item--active,
+html:not(.dark) .n-pagination .n-pagination-item.n-pagination-item--active * {
+  color: #ffffff !important;
+  background-color: #10b981 !important;
+  border-color: #10b981 !important;
+}
+
+html:not(.dark) .n-pagination .n-pagination-item:not(.n-pagination-item--active):not(.n-pagination-item--disabled):hover {
+  background-color: rgba(16, 185, 129, 0.1) !important;
+  border-color: #10b981 !important;
+}
+
+html:not(.dark) .n-pagination .n-base-selection {
+  background-color: #ffffff !important;
+  border-color: #e5e7eb !important;
+}
+
+html:not(.dark) .n-pagination .n-base-selection:hover,
+html:not(.dark) .n-pagination .n-base-selection.n-base-selection--active {
+  border-color: #10b981 !important;
 }
 </style>

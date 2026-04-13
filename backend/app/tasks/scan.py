@@ -2,14 +2,13 @@ from datetime import datetime
 from sqlalchemy import select, cast, delete
 from sqlalchemy.dialects.postgresql import INET, CIDR
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
-import uuid
 import ipaddress
 
 from app.tasks.celery_config import celery
 from app.core.config import settings
 from app.core.security import decrypt_data
 from app.core.database import async_session_maker
-from app.models.scan.scan_model import ScanTask, ScanLog, TaskStatus
+from app.models.scan.scan_model import ScanTask, TaskStatus
 from app.models.scan.scan_subnet_model import ScanSubnet
 from app.models.switch.switch_model import Switch
 from app.models.ip.ip_model import IPRecord, IPEvent, IPEventType, IPStatus, IPSubnet
@@ -151,26 +150,9 @@ def run_scan_task(self, task_id: str):
 
                     await db.commit()
 
-                    # Include filtered count in log
-                    filter_msg = f", filtered: {filtered_ips}" if active_subnets else ""
-                    scan_log = ScanLog(
-                        task_id=uuid.UUID(task_id),
-                        status="SUCCESS",
-                        message=f"Switch {switch.ip}: {len(arp_table)} IPs{filter_msg}",
-                    )
-                    db.add(scan_log)
-                    await db.commit()
-
                 except Exception as e:
                     await db.rollback()
                     error_messages.append(f"Switch {switch.ip}: {str(e)}")
-                    scan_log = ScanLog(
-                        task_id=uuid.UUID(task_id),
-                        status="FAILED",
-                        message=f"Switch {switch.ip}: {str(e)}"[:500],
-                    )
-                    db.add(scan_log)
-                    await db.commit()
 
             # Auto-create /24 subnets for discovered IPs (only matching scan_subnets)
             try:
