@@ -9,7 +9,7 @@
             <n-select v-model:value="loginQ.success" :options="successOptions" placeholder="状态" clearable style="width: 120px" />
             <n-input v-model:value="loginQ.ip_address" placeholder="IP 地址" clearable style="width: 140px" />
             <n-date-picker v-model:value="loginQ.range" type="daterange" clearable style="width: 280px" />
-            <n-button type="primary" @click="loadLoginLogs">
+            <n-button type="primary" @click="filterLoginLogs">
               <template #icon><n-icon><search-outline /></n-icon></template>
               查询
             </n-button>
@@ -17,7 +17,7 @@
           </n-space>
           <n-data-table 
             :columns="loginColumns" 
-            :data="loginLogs" 
+            :data="loginLogsFiltered" 
             :bordered="false" 
             size="small" 
             :pagination="loginPagination"
@@ -59,7 +59,7 @@
 import { ref, reactive, onMounted, h } from 'vue'
 import { useMessage, NTag, NButton, NIcon, NSelect, NDatePicker } from 'naive-ui'
 import { SearchOutline, RefreshOutline } from '@vicons/ionicons5'
-import { formatDateTime } from '@/utils/time'
+import { formatDateTime, parseUTC } from '@/utils/time'
 import api from '@/api'
 
 const message = useMessage()
@@ -67,6 +67,7 @@ const cleaning = ref(false)
 const loadingLogin = ref(false)
 const loadingScan = ref(false)
 const loginLogs = ref<any[]>([])
+const loginLogsFiltered = ref<any[]>([])
 const scanLogs = ref<any[]>([])
 const scanLogsFiltered = ref<any[]>([])
 
@@ -178,15 +179,7 @@ onMounted(async () => {
 async function loadLoginLogs() {
   loadingLogin.value = true
   try {
-    const params: any = {}
-    if (loginQ.username) params.username = loginQ.username
-    if (loginQ.success !== null) params.success = loginQ.success
-    if (loginQ.ip_address) params.ip_address = loginQ.ip_address
-    if (loginQ.range) {
-      params.start_date = new Date(loginQ.range[0]).toISOString()
-      params.end_date = new Date(loginQ.range[1]).toISOString()
-    }
-    const res = await api.get('/logs/login', { params })
+    const res = await api.get('/logs/login')
     if (res.data?.items) {
       loginLogs.value = res.data.items
     } else if (Array.isArray(res.data)) {
@@ -194,12 +187,37 @@ async function loadLoginLogs() {
     } else {
       loginLogs.value = []
     }
+    filterLoginLogs()
   } catch (e: any) { 
     message.error(e.response?.data?.detail || '加载登录日志失败') 
     loginLogs.value = []
+    loginLogsFiltered.value = []
   } finally {
     loadingLogin.value = false
   }
+}
+
+function filterLoginLogs() {
+  loginPagination.page = 1
+  let data = loginLogs.value
+  if (loginQ.username) {
+    data = data.filter((r: any) => r.username?.includes(loginQ.username))
+  }
+  if (loginQ.success !== null) {
+    data = data.filter((r: any) => r.success === loginQ.success)
+  }
+  if (loginQ.ip_address) {
+    data = data.filter((r: any) => r.ip_address?.includes(loginQ.ip_address))
+  }
+  if (loginQ.range) {
+    const start = loginQ.range[0]
+    const end = loginQ.range[1] + 86400000 - 1000
+    data = data.filter((r: any) => {
+      const t = parseUTC(r.created_at)?.getTime()
+      return t != null && t >= start && t <= end
+    })
+  }
+  loginLogsFiltered.value = data
 }
 
 async function loadScanLogs() {
@@ -236,8 +254,8 @@ function filterScanLogs() {
     const start = scanQ.range[0]
     const end = scanQ.range[1] + 86400000 - 1000
     data = data.filter((r: any) => {
-      const t = new Date(r.created_at).getTime()
-      return t >= start && t <= end
+      const t = parseUTC(r.created_at)?.getTime()
+      return t != null && t >= start && t <= end
     })
   }
   scanLogsFiltered.value = data
