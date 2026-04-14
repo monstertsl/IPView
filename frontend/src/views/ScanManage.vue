@@ -72,7 +72,7 @@
             <n-alert type="info" title="说明" closable style="margin-bottom: 12px">
               只有匹配已配置网段的 IP 地址才会被入库。若未配置任何网段，则允许所有 IP 入库。
             </n-alert>
-            <n-data-table :columns="subnetColumns" :data="subnets" :bordered="false" size="small" :max-height="200" />
+            <n-data-table :columns="subnetColumns" :data="subnets" :bordered="false" size="small" :max-height="200" :scroll-x="520" />
           </n-card>
         </n-space>
       </n-gi>
@@ -154,21 +154,12 @@ const editSubnetForm = ref<{ id: string; cidr: string; description: string; is_a
 })
 
 const subnetColumns = [
-  {
-    title: '网段 CIDR',
-    key: 'cidr',
-    width: 130,
-    render: (row: ScanSubnet) => h('span', row.cidr)
-  },
-  {
-    title: '描述',
-    key: 'description',
-    render: (row: ScanSubnet) => h('span', row.description || '-')
-  },
+  { title: '网段 CIDR', key: 'cidr', width: 110 },
+  { title: '描述', key: 'description', width: 80, ellipsis: { tooltip: true } },
   {
     title: '状态',
     key: 'is_active',
-    width: 100,
+    width: 60,
     render: (row: ScanSubnet) => h(NTag, {
       type: row.is_active ? 'success' : 'default',
       size: 'small'
@@ -177,28 +168,26 @@ const subnetColumns = [
   {
     title: '创建时间',
     key: 'created_at',
-    width: 160,
+    width: 150,
     render: (row: ScanSubnet) => formatDateTime(row.created_at)
   },
   {
     title: '操作',
     key: 'actions',
-    width: 150,
-    render: (row: ScanSubnet) => h(NSpace, { size: 'small' }, {
-      default: () => [
-        h(NButton, {
-          size: 'small',
-          quaternary: true,
-          onClick: () => openEditSubnet(row)
-        }, { default: () => '编辑' }),
-        h(NButton, {
-          size: 'small',
-          quaternary: true,
-          type: 'error',
-          onClick: () => confirmDeleteSubnet(row)
-        }, { default: () => '删除' })
-      ]
-    })
+    width: 100,
+    render: (row: ScanSubnet) => h('div', { style: 'display:flex;gap:4px' }, [
+      h(NButton, {
+        size: 'small',
+        text: true,
+        onClick: () => openEditSubnet(row)
+      }, { default: () => '编辑' }),
+      h(NButton, {
+        size: 'small',
+        text: true,
+        type: 'error',
+        onClick: () => confirmDeleteSubnet(row)
+      }, { default: () => '删除' })
+    ])
   }
 ]
 

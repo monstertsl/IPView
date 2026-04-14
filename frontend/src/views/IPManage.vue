@@ -33,27 +33,35 @@
         </n-space>
 
         <!-- Subnet title + Stats (hide when searching IP/MAC or fuzzy matches) -->
-        <n-grid v-if="!searchResult && !fuzzySubnets" :cols="5" :x-gap="12" style="margin-bottom: 12px; align-items: end;">
-          <n-gi>
-            <n-statistic label="网段" style="--n-label-font-size: 14px;">
+        <div v-if="!searchResult && !fuzzySubnets" class="subnet-stats">
+          <div class="stat-item">
+            <n-statistic label="网段">
               <template #default>
-                <n-tag size="large" type="primary" style="font-size: 24px; font-weight: 600; padding: 4px 12px;">
+                <n-tag size="large" type="primary" style="font-size: 20px; font-weight: 600; padding: 2px 10px;">
                   {{ selectedSubnet?.cidr }}
                 </n-tag>
               </template>
             </n-statistic>
-          </n-gi>
-          <n-gi><n-statistic label="在线 (ONLINE)" :value="bulkData.online">
-            <template #suffix><n-tag type="success" size="small">使用中</n-tag></template>
-          </n-statistic></n-gi>
-          <n-gi><n-statistic label="离线 (OFFLINE)" :value="bulkData.offline">
-            <template #suffix><n-tag type="warning" size="small">离线</n-tag></template>
-          </n-statistic></n-gi>
-          <n-gi><n-statistic label="未使用 (UNUSED)" :value="bulkData.unused">
-            <template #suffix><n-tag type="default" size="small">空闲</n-tag></template>
-          </n-statistic></n-gi>
-          <n-gi><n-statistic label="总计" :value="bulkData.total" /></n-gi>
-        </n-grid>
+          </div>
+          <div class="stat-item">
+            <n-statistic label="在线 (ONLINE)" :value="bulkData.online">
+              <template #suffix><n-tag type="success" size="small">使用中</n-tag></template>
+            </n-statistic>
+          </div>
+          <div class="stat-item">
+            <n-statistic label="离线 (OFFLINE)" :value="bulkData.offline">
+              <template #suffix><n-tag type="warning" size="small">离线</n-tag></template>
+            </n-statistic>
+          </div>
+          <div class="stat-item">
+            <n-statistic label="未使用 (UNUSED)" :value="bulkData.unused">
+              <template #suffix><n-tag type="default" size="small">空闲</n-tag></template>
+            </n-statistic>
+          </div>
+          <div class="stat-item">
+            <n-statistic label="总计" :value="bulkData.total" />
+          </div>
+        </div>
 
         <!-- IP Grid -->
         <n-card :bordered="false" size="small">
@@ -396,8 +404,8 @@ function cellStyle(status?: string) {
   min-height: 0;
 }
 .ip-layout-left {
-  width: 220px;
-  min-width: 220px;
+  width: 180px;
+  min-width: 180px;
   display: flex;
   flex-direction: column;
   height: 100%;
@@ -427,6 +435,19 @@ function cellStyle(status?: string) {
   display: grid;
   grid-template-columns: repeat(20, 1fr);
   gap: 4px;
+}
+
+/* Subnet stats */
+.subnet-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 0;
+  align-items: end;
+  margin-bottom: 12px;
+}
+.stat-item {
+  flex: 1 0 auto;
+  min-width: 120px;
 }
 .ip-cell {
   aspect-ratio: 1;
