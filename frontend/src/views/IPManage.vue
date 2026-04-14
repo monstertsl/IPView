@@ -81,7 +81,7 @@
               </n-button>
             </n-space>
           </div>
-          <div class="ip-grid" v-else-if="!searchResult">
+          <div class="ip-grid" v-else-if="!searchResult" :style="{ gridTemplateColumns: `repeat(${gridCols}, 1fr)` }">
             <div
               v-for="ip in paginatedIPs"
               :key="ip.ip_address"
@@ -174,7 +174,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
 import { useMessage } from 'naive-ui'
 import { h } from 'vue'
 import api from '@/api'
@@ -186,6 +186,14 @@ import { useThemeStore } from '@/stores/theme'
 const message = useMessage()
 const themeStore = useThemeStore()
 const isDark = computed(() => themeStore.isDark)
+
+// Dynamic grid columns based on screen width
+const gridCols = ref(20)
+function updateGridCols() {
+  const width = window.innerWidth - 220 // subtract left sidebar
+  const cols = Math.floor(width / 52)  // ~52px per cell at 14px font
+  gridCols.value = Math.min(22, Math.max(15, cols))
+}
 
 const subnets = ref<IPSubnet[]>([])
 const selectedSubnet = ref<IPSubnet | null>(null)
@@ -241,7 +249,13 @@ const tooltipDividerStyle = computed(() => isDark.value
 )
 
 onMounted(async () => {
+  updateGridCols()
+  window.addEventListener('resize', updateGridCols)
   await loadSubnets()
+})
+
+onUnmounted(() => {
+  window.removeEventListener('resize', updateGridCols)
 })
 
 async function loadSubnets() {
@@ -435,7 +449,6 @@ function cellStyle(status?: string) {
 /* IP Grid */
 .ip-grid {
   display: grid;
-  grid-template-columns: repeat(20, 1fr);
   gap: 4px;
 }
 
@@ -458,7 +471,7 @@ function cellStyle(status?: string) {
   justify-content: center;
   border-radius: 4px;
   cursor: pointer;
-  font-size: 11px;
+  font-size: 14px;
   font-weight: 500;
   transition: all 0.15s;
 }
