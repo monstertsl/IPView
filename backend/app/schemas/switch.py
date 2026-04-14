@@ -44,8 +44,11 @@ class SwitchBase(BaseModel):
     def validate_mac(cls, v: Optional[str]) -> Optional[str]:
         if v:
             import re
-            if not re.match(r"^[0-9A-Fa-f]{2}(:[0-9A-Fa-f]{2}){5}$", v):
+            # Accept both : and - as separators
+            if not re.match(r"^[0-9A-Fa-f]{2}([:-])[0-9A-Fa-f]{2}(\1[0-9A-Fa-f]{2}){4}$", v):
                 raise ValueError("Invalid MAC address format (expected XX:XX:XX:XX:XX:XX)")
+            # Normalize to : separator
+            v = v.upper().replace("-", ":")
         return v
 
 

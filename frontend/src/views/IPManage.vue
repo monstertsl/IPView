@@ -282,8 +282,10 @@ async function addSubnet() {
 
 async function handleSearch() {
   if (!searchQ.value.trim()) { searchResult.value = null; searchData.value = null; fuzzySubnets.value = null; return }
+  // Normalize MAC address format: replace '-' with ':'
+  const query = searchQ.value.replace(/-/g, ':')
   try {
-    const res = await api.get('/ip/search', { params: { q: searchQ.value } })
+    const res = await api.get('/ip/search', { params: { q: query } })
     fuzzySubnets.value = null
     if (res.data.type === 'ip' || res.data.type === 'mac') {
       searchData.value = res.data
