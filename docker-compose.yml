@@ -1,12 +1,12 @@
 services:
   postgres:
+    restart: always
     image: postgres:16-alpine
     environment:
       POSTGRES_DB: ipview
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
-    ports:
-      - "5432:5432"
+
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -18,9 +18,9 @@ services:
       - ipview-network
 
   redis:
+    restart: always
     image: redis:7-alpine
-    ports:
-      - "6379:6379"
+
     volumes:
       - redisdata:/data
     healthcheck:
@@ -32,11 +32,11 @@ services:
       - ipview-network
 
   backend:
+    restart: always
     build:
       context: ./backend
       dockerfile: Dockerfile
-    ports:
-      - "8000:8000"
+
     environment:
       DATABASE_URL: postgresql+asyncpg://postgres:postgres@postgres:5432/ipview
       REDIS_URL: redis://redis:6379/0
@@ -60,6 +60,7 @@ services:
       - ipview-network
 
   celery:
+    restart: always
     build:
       context: ./backend
       dockerfile: Dockerfile
@@ -80,6 +81,7 @@ services:
       - ipview-network
 
   celery-beat:
+    restart: always
     build:
       context: ./backend
       dockerfile: Dockerfile
@@ -100,6 +102,7 @@ services:
       - ipview-network
 
   frontend:
+    restart: always
     build:
       context: ./frontend
       dockerfile: Dockerfile
