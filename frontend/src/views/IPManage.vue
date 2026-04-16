@@ -404,7 +404,7 @@ function formatTime(t?: string) { return formatDateTime(t, '无记录') }
 function cellStyle(status?: string) {
   const s = status?.toLowerCase() || 'unused'
   if (s === 'online') return { background: 'rgba(24,160,88,0.7)', color: '#fff' }
-  if (s === 'offline') return { background: 'rgba(250,173,20,0.7)', color: '#fff' }
+  if (s === 'offline') return { background: '#f0a020', color: '#fff' }
   // unused
   return isDark.value
     ? { background: 'rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.35)' }

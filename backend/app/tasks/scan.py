@@ -1,5 +1,5 @@
-from datetime import datetime
-from sqlalchemy import select, cast, delete
+from datetime import datetime, timedelta
+from sqlalchemy import select, cast, delete, update
 from sqlalchemy.dialects.postgresql import INET, CIDR
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 import ipaddress
@@ -191,6 +191,30 @@ def run_scan_task(self, task_id: str):
                     await db.commit()
                 except Exception:
                     await db.rollback()
+
+                # Refresh status for ALL IP records based on last_seen
+                now = datetime.utcnow()
+                online_cutoff = now - timedelta(days=online_days)
+                cleanup_cutoff = now - timedelta(days=cleanup_days)
+                # ONLINE: last_seen within online_days
+                await db.execute(
+                    update(IPRecord)
+                    .where(IPRecord.last_seen != None, IPRecord.last_seen >= online_cutoff)
+                    .values(status=IPStatus.ONLINE)
+                )
+                # OFFLINE: last_seen between online_days and cleanup_days
+                await db.execute(
+                    update(IPRecord)
+                    .where(IPRecord.last_seen != None, IPRecord.last_seen < online_cutoff, IPRecord.last_seen >= cleanup_cutoff)
+                    .values(status=IPStatus.OFFLINE)
+                )
+                # UNUSED: last_seen older than cleanup_days
+                await db.execute(
+                    update(IPRecord)
+                    .where(IPRecord.last_seen != None, IPRecord.last_seen < cleanup_cutoff)
+                    .values(status=IPStatus.UNUSED)
+                )
+                await db.commit()
 
                 # Finalize task
                 success_count = len(switches) - len(error_messages)

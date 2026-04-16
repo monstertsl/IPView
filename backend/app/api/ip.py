@@ -3,7 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update, delete, and_, func, text, cast
 from typing import List, Optional
 import ipaddress
-from datetime import datetime, timezone, timedelta
+from datetime import datetime
 
 from app.core.database import get_db
 from app.core.auth import get_current_user, require_role
@@ -18,31 +18,6 @@ from app.schemas.ip import (
 )
 
 router = APIRouter(prefix="/api/ip", tags=["IP管理"])
-
-
-async def _get_status(last_seen: Optional[datetime], db: AsyncSession) -> IPStatus:
-    if not last_seen:
-        return IPStatus.UNUSED
-    result = await db.execute(select(SystemConfig).limit(1))
-    cfg = result.scalar_one_or_none()
-    if not cfg:
-        cfg_dict = {
-            "online_days": settings.ONLINE_DAYS,
-            "cleanup_days": settings.CLEANUP_DAYS,
-        }
-    else:
-        cfg_dict = {
-            "online_days": cfg.online_days,
-            "cleanup_days": cfg.cleanup_days,
-        }
-    now = datetime.now(timezone.utc)
-    delta = (now - last_seen.replace(tzinfo=timezone.utc)).days
-    if delta <= cfg_dict["online_days"]:
-        return IPStatus.ONLINE
-    elif delta <= cfg_dict["cleanup_days"]:
-        return IPStatus.OFFLINE
-    else:
-        return IPStatus.UNUSED
 
 
 def _iprecord_to_response(r: IPRecord) -> IPRecordResponse:
