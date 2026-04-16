@@ -9,6 +9,8 @@
   <img src="https://img.shields.io/badge/Docker-2496ED?style=flat-square&logo=docker&logoColor=white" />
 </p>
 
+[中文](./README.md) | [English](./README_EN.md)
+
 基于 **FastAPI + Vue 3 + PostgreSQL + Redis + Celery** 的企业级 IP 地址监控与管理系统，通过 SNMP 协议自动采集核心交换机 ARP 表，实时掌握全网 IP 使用状态。
 
 ---
@@ -55,7 +57,6 @@ docker compose up -d
 | 服务 | 地址 |
 |------|------|
 | 前端 | http://localhost:3000 |
-| 后端 API | http://localhost:8000 |
 
 默认管理员账号：`admin` / `admin123`
 
