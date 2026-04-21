@@ -14,16 +14,23 @@ api.interceptors.request.use(config => {
 })
 
 api.interceptors.response.use(
-  res => res,
+  res => {
+    // M2 sliding-session: rotate token when backend returns a refreshed one.
+    const refreshed = res.headers?.['x-refreshed-token'] || res.headers?.['X-Refreshed-Token']
+    if (refreshed) {
+      localStorage.setItem('access_token', refreshed)
+    }
+    return res
+  },
   async error => {
     if (error.response?.status === 401) {
       const token = localStorage.getItem('access_token')
       if (token) {
-        // Token 过期/失效，清理并跳转登录
+        // Token expired / revoked — drop local state and go to login.
         localStorage.removeItem('access_token')
         window.location.href = '/login'
       }
-      // 无 token（如登录请求的 401）不跳转，让调用方 catch 处理
+      // Let login-page 401s bubble up so the caller can show the error.
     }
     return Promise.reject(error)
   }

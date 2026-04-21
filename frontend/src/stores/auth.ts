@@ -13,7 +13,7 @@ export const useAuthStore = defineStore('auth', () => {
     const payload: any = { username }
     if (password) payload.password = password
     if (totpCode) payload.totp_code = totpCode
-    
+
     const res = await api.post<{ access_token: string; user: User }>('/auth/login', payload)
     token.value = res.data.access_token
     user.value = res.data.user
@@ -21,7 +21,14 @@ export const useAuthStore = defineStore('auth', () => {
     return res.data
   }
 
-  function logout() {
+  async function logout() {
+    // M1: notify backend so the token is added to the blacklist. Ignore failures
+    // (e.g. token already expired / network down) and still clear local state.
+    try {
+      await api.post('/auth/logout')
+    } catch {
+      // swallow
+    }
     token.value = null
     user.value = null
     localStorage.removeItem('access_token')
@@ -33,8 +40,8 @@ export const useAuthStore = defineStore('auth', () => {
       const payload = JSON.parse(atob(token.value.split('.')[1]))
       user.value = { id: payload.sub, username: payload.username, role: payload.role } as User
     } catch {
-      // Token 损坏或格式无效，清理状态
-      logout()
+      // Token corrupt or invalid; reset.
+      await logout()
     }
   }
 

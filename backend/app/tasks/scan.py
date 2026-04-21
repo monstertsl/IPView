@@ -93,10 +93,17 @@ def run_scan_task(self, task_id: str):
                         if switch.snmp_v3_config_encrypted:
                             snmp_config = __import__("json").loads(decrypt_data(switch.snmp_v3_config_encrypted))
 
+                        community_plain = None
+                        if switch.community_encrypted:
+                            try:
+                                community_plain = decrypt_data(switch.community_encrypted)
+                            except Exception:
+                                community_plain = None
+
                         scanner = SNMPScanner(
                             host=str(switch.ip),
                             snmp_version=switch.snmp_version.value,
-                            community=switch.community,
+                            community=community_plain,
                             snmp_v3_config=snmp_config,
                             timeout=settings.SNMP_TIMEOUT,
                             retry=settings.SNMP_RETRY,

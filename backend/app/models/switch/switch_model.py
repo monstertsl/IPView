@@ -22,7 +22,7 @@ class Switch(Base):
     mac: Mapped[str] = mapped_column(String(17), nullable=True)
 
     snmp_version: Mapped[SNMPVersion] = mapped_column(SAEnum(SNMPVersion), default=SNMPVersion.v2c, nullable=False)
-    community: Mapped[str] = mapped_column(String(100), nullable=True)
+    community_encrypted: Mapped[str] = mapped_column(Text, nullable=True)
     snmp_v3_config_encrypted: Mapped[str] = mapped_column(Text, nullable=True)
 
     location: Mapped[str] = mapped_column(String(255), nullable=True)
