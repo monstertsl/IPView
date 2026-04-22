@@ -130,10 +130,10 @@ function handleMenuChange(key: string) {
   router.push({ name: key })
 }
 
-function handleUserMenu(key: string) {
+async function handleUserMenu(key: string) {
   if (key === 'logout') {
-    auth.logout()
-    router.push('/login')
+    await auth.logout()
+    window.location.href = '/login'
   }
 }
 </script>

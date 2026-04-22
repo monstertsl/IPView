@@ -4,7 +4,7 @@ import api from '@/api'
 import type { User } from '@/types'
 
 export const useAuthStore = defineStore('auth', () => {
-  const token = ref<string | null>(localStorage.getItem('access_token'))
+  const token = ref<string | null>(sessionStorage.getItem('access_token'))
   const user = ref<User | null>(null)
 
   const isLoggedIn = computed(() => !!token.value)
@@ -17,7 +17,7 @@ export const useAuthStore = defineStore('auth', () => {
     const res = await api.post<{ access_token: string; user: User }>('/auth/login', payload)
     token.value = res.data.access_token
     user.value = res.data.user
-    localStorage.setItem('access_token', res.data.access_token)
+    sessionStorage.setItem('access_token', res.data.access_token)
     return res.data
   }
 
@@ -31,7 +31,7 @@ export const useAuthStore = defineStore('auth', () => {
     }
     token.value = null
     user.value = null
-    localStorage.removeItem('access_token')
+    sessionStorage.removeItem('access_token')
   }
 
   async function fetchCurrentUser() {

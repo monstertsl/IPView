@@ -1,3 +1,11 @@
+x-backend-env: &backend-env
+  DATABASE_URL: postgresql+asyncpg://postgres:postgres@postgres:5432/ipview
+  REDIS_URL: redis://redis:6379/0
+  CELERY_BROKER_URL: redis://redis:6379/1
+  CELERY_RESULT_BACKEND: redis://redis:6379/2
+  SECRET_KEY: change-me-in-production-use-64-char-random-hex
+  ENCRYPT_KEY: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+
 services:
   postgres:
     restart: always
@@ -36,14 +44,7 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
-
-    environment:
-      DATABASE_URL: postgresql+asyncpg://postgres:postgres@postgres:5432/ipview
-      REDIS_URL: redis://redis:6379/0
-      CELERY_BROKER_URL: redis://redis:6379/1
-      CELERY_RESULT_BACKEND: redis://redis:6379/2
-      SECRET_KEY: change-me-in-production-use-64-char-random-hex
-      ENCRYPT_KEY: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+    environment: *backend-env
     depends_on:
       postgres:
         condition: service_healthy
@@ -63,13 +64,7 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    environment:
-      DATABASE_URL: postgresql+asyncpg://postgres:postgres@postgres:5432/ipview
-      REDIS_URL: redis://redis:6379/0
-      CELERY_BROKER_URL: redis://redis:6379/1
-      CELERY_RESULT_BACKEND: redis://redis:6379/2
-      SECRET_KEY: change-me-in-production-use-64-char-random-hex
-      ENCRYPT_KEY: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+    environment: *backend-env
     depends_on:
       postgres:
         condition: service_healthy
@@ -84,13 +79,7 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    environment:
-      DATABASE_URL: postgresql+asyncpg://postgres:postgres@postgres:5432/ipview
-      REDIS_URL: redis://redis:6379/0
-      CELERY_BROKER_URL: redis://redis:6379/1
-      CELERY_RESULT_BACKEND: redis://redis:6379/2
-      SECRET_KEY: change-me-in-production-use-64-char-random-hex
-      ENCRYPT_KEY: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+    environment: *backend-env
     depends_on:
       postgres:
         condition: service_healthy
