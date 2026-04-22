@@ -13,6 +13,7 @@
 
 基于 **FastAPI + Vue 3 + PostgreSQL + Redis + Celery** 的企业级 IP 地址监控与管理系统，通过 SNMP 协议自动采集核心交换机 ARP 表，实时掌握全网 IP 使用状态。
 
+超轻量化部署，单机2GB内存、2GB磁盘的轻量级服务器即可从容承载 5000+ IP的实时监控需求，实测7台交换机，5000个IP结果，整体项目仅占用 ≈ 724MB存储空间（镜像：652.40 MB，数据卷：68.87 MB，容器层	2.74 MB），IPView项目整体消耗 ≈ 1.52GB（Docker本身：277 MB，IPView：1.25GB）。
 ---
 
 ![demo.png](./demo.png)
@@ -28,7 +29,7 @@
 - **完整审计日志** — 登录日志 + 扫描日志，支持自动/手动清理
 - **RBAC 权限控制** — admin / user 两级角色
 - **TOTP 多因素认证** — 支持 Google Authenticator 等 TOTP 应用
-- **数据加密存储** — TOTP 密钥、SNMPv3 配置使用 Fernet 加密
+- **数据加密存储** — TOTP 密钥、SNMP 配置使用 Fernet 加密
 
 ## 技术栈
 
@@ -212,7 +213,7 @@ IPView/
 ## 安全说明
 
 - 用户密码 bcrypt 加密存储
-- TOTP 密钥、SNMPv3 配置使用 Fernet（PBKDF2）对称加密
+- TOTP 密钥、SNMP 配置使用 Fernet（PBKDF2）对称加密
 - 所有 API 接口需 Bearer Token（JWT）认证
 - 登录连续失败 5 次自动禁用账号
 - SQL 查询使用 SQLAlchemy ORM 参数化，防注入
@@ -226,13 +227,13 @@ IPView/
 
 ```bash
 docker exec -it ipview-postgres-1 psql -U postgres -d ipview -c \
-  "SELECT username, role, is_active, totp_enabled, failed_login_attempts, auth_mode FROM users;"
+  "SELECT username, role, is_active, (totp_secret_encrypted IS NOT NULL) AS totp_enabled, failed_login_attempts, auth_mode FROM users;"
 ```
 
 ```
- username | role  | is_active | totp_enabled | failed_login_attempts | auth_mode
-----------+-------+-----------+--------------+-----------------------+-----------
- admin    | admin | f         | t            |                     5 | password
+ username | role  | is_active | totp_enabled | failed_login_attempts |   auth_mode
+----------+-------+-----------+--------------+-----------------------+---------------
+ admin    | admin | f         | t            |                     5 | PASSWORD_ONLY
 ```
 
 ### 重置用户密码
@@ -271,7 +272,7 @@ docker exec -it ipview-backend-1 python -c "
 from passlib.context import CryptContext
 import subprocess, sys
 h = CryptContext(schemes=['bcrypt']).hash('admin123')
-sql = f\"UPDATE users SET password_hash='{h}', failed_login_attempts=0, is_active=true, totp_enabled=false, totp_secret_encrypted=null, auth_mode='password' WHERE username='admin';\"
+sql = f\"UPDATE users SET password_hash='{h}', failed_login_attempts=0, is_active=true, totp_secret_encrypted=null, auth_mode='PASSWORD_ONLY' WHERE username='admin';\"
 subprocess.run(['psql', '-h', 'postgres', '-U', 'postgres', '-d', 'ipview', '-c', sql], env={**__import__('os').environ, 'PGPASSWORD': 'postgres'})
 "
 ```
@@ -280,7 +281,7 @@ subprocess.run(['psql', '-h', 'postgres', '-U', 'postgres', '-d', 'ipview', '-c'
 
 ```bash
 docker exec -it ipview-postgres-1 psql -U postgres -d ipview -c \
-  "UPDATE users SET totp_enabled=false, totp_secret_encrypted=null WHERE username='admin';"
+  "UPDATE users SET totp_secret_encrypted=null, auth_mode='PASSWORD_ONLY' WHERE username='admin';"
 ```
 
 ### 切换认证模式为纯密码
@@ -289,7 +290,7 @@ docker exec -it ipview-postgres-1 psql -U postgres -d ipview -c \
 
 ```bash
 docker exec -it ipview-postgres-1 psql -U postgres -d ipview -c \
-  "UPDATE users SET auth_mode='password', totp_enabled=false, totp_secret_encrypted=null WHERE username='admin';"
+  "UPDATE users SET auth_mode='PASSWORD_ONLY', totp_secret_encrypted=null WHERE username='admin';"
 ```
 
 ### 创建新管理员
@@ -301,9 +302,25 @@ docker exec -it ipview-backend-1 python -c "
 from passlib.context import CryptContext
 import subprocess, os
 h = CryptContext(schemes=['bcrypt']).hash('admin123')
-sql = f\"INSERT INTO users (id, username, password_hash, role, auth_mode, is_active, totp_enabled, failed_login_attempts, created_at) VALUES (gen_random_uuid(), 'newadmin', '{h}', 'admin', 'password', true, false, 0, now()) ON CONFLICT (username) DO NOTHING;\"
+sql = f\"INSERT INTO users (id, username, password_hash, role, auth_mode, is_active, failed_login_attempts, created_at, updated_at) VALUES (gen_random_uuid(), 'newadmin', '{h}', 'admin', 'PASSWORD_ONLY', true, 0, now(), now()) ON CONFLICT (username) DO NOTHING;\"
 subprocess.run(['psql', '-h', 'postgres', '-U', 'postgres', '-d', 'ipview', '-c', sql], env={**os.environ, 'PGPASSWORD': 'postgres'})
 "
+```
+
+### 启用/禁用用户
+
+手动启用被禁用的用户：
+
+```bash
+docker exec -it ipview-postgres-1 psql -U postgres -d ipview -c \
+  "UPDATE users SET is_active=true WHERE username='admin';"
+```
+
+手动禁用用户：
+
+```bash
+docker exec -it ipview-postgres-1 psql -U postgres -d ipview -c \
+  "UPDATE users SET is_active=false WHERE username='test';"
 ```
 
 ## License

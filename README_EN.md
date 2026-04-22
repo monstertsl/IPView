@@ -13,6 +13,7 @@
 
 An enterprise-grade IP address monitoring and management system built with **FastAPI + Vue 3 + PostgreSQL + Redis + Celery**. It automatically collects ARP tables from core switches via SNMP to provide real-time visibility into IP usage across the network.
 
+Ultra-lightweight deployment: a server with only 2 GB RAM and 2 GB disk comfortably handles 5000+ IPs of real-time monitoring. Measured on 7 switches with 5000 IPs, the whole project occupies about 724 MB on disk (images: 652.40 MB, volumes: 68.87 MB, container layers: 2.74 MB) and uses about 1.52 GB of memory at runtime (Docker itself: 277 MB; IPView: 1.25 GB).
 ---
 
 ![demo.png](./demo.png)
@@ -28,7 +29,7 @@ An enterprise-grade IP address monitoring and management system built with **Fas
 - **Comprehensive Audit Logs** — Login logs and scan logs, with support for both automatic and manual cleanup
 - **RBAC Access Control** — Two roles: admin / user
 - **TOTP-Based Multi-Factor Authentication** — Supports Google Authenticator and other TOTP apps
-- **Encrypted Data Storage** — TOTP secrets and SNMPv3 configuration are encrypted with Fernet
+- **Encrypted Data Storage** — TOTP secrets and SNMP configuration are encrypted with Fernet
 
 ## Tech Stack
 
@@ -212,7 +213,7 @@ IPView/
 ## Security Notes
 
 - User passwords are stored with bcrypt hashing
-- TOTP secrets and SNMPv3 configuration use Fernet (PBKDF2) symmetric encryption
+- TOTP secrets and SNMP configuration use Fernet (PBKDF2) symmetric encryption
 - All API endpoints require Bearer Token (JWT) authentication
 - Accounts are automatically disabled after 5 consecutive failed login attempts
 - SQL queries use SQLAlchemy ORM parameterization to prevent injection
@@ -226,13 +227,13 @@ If you cannot log in to the frontend, you can operate directly from the command 
 
 ```bash
 docker exec -it ipview-postgres-1 psql -U postgres -d ipview -c \
-  "SELECT username, role, is_active, totp_enabled, failed_login_attempts, auth_mode FROM users;"
+  "SELECT username, role, is_active, (totp_secret_encrypted IS NOT NULL) AS totp_enabled, failed_login_attempts, auth_mode FROM users;"
 ```
 
 ```
- username | role  | is_active | totp_enabled | failed_login_attempts | auth_mode
-----------+-------+-----------+--------------+-----------------------+-----------
- admin    | admin | f         | t            |                     5 | password
+ username | role  | is_active | totp_enabled | failed_login_attempts |   auth_mode
+----------+-------+-----------+--------------+-----------------------+---------------
+ admin    | admin | f         | t            |                     5 | PASSWORD_ONLY
 ```
 
 ### Reset User Password
@@ -271,7 +272,7 @@ docker exec -it ipview-backend-1 python -c "
 from passlib.context import CryptContext
 import subprocess, sys
 h = CryptContext(schemes=['bcrypt']).hash('admin123')
-sql = f\"UPDATE users SET password_hash='{h}', failed_login_attempts=0, is_active=true, totp_enabled=false, totp_secret_encrypted=null, auth_mode='password' WHERE username='admin';\"
+sql = f\"UPDATE users SET password_hash='{h}', failed_login_attempts=0, is_active=true, totp_secret_encrypted=null, auth_mode='PASSWORD_ONLY' WHERE username='admin';\"
 subprocess.run(['psql', '-h', 'postgres', '-U', 'postgres', '-d', 'ipview', '-c', sql], env={**__import__('os').environ, 'PGPASSWORD': 'postgres'})
 "
 ```
@@ -280,7 +281,7 @@ subprocess.run(['psql', '-h', 'postgres', '-U', 'postgres', '-d', 'ipview', '-c'
 
 ```bash
 docker exec -it ipview-postgres-1 psql -U postgres -d ipview -c \
-  "UPDATE users SET totp_enabled=false, totp_secret_encrypted=null WHERE username='admin';"
+  "UPDATE users SET totp_secret_encrypted=null, auth_mode='PASSWORD_ONLY' WHERE username='admin';"
 ```
 
 ### Switch Authentication Mode to Password Only
@@ -289,7 +290,7 @@ If a user is set to TOTP-only mode and can no longer log in:
 
 ```bash
 docker exec -it ipview-postgres-1 psql -U postgres -d ipview -c \
-  "UPDATE users SET auth_mode='password', totp_enabled=false, totp_secret_encrypted=null WHERE username='admin';"
+  "UPDATE users SET auth_mode='PASSWORD_ONLY', totp_secret_encrypted=null WHERE username='admin';"
 ```
 
 ### Create a New Administrator
@@ -301,9 +302,25 @@ docker exec -it ipview-backend-1 python -c "
 from passlib.context import CryptContext
 import subprocess, os
 h = CryptContext(schemes=['bcrypt']).hash('admin123')
-sql = f\"INSERT INTO users (id, username, password_hash, role, auth_mode, is_active, totp_enabled, failed_login_attempts, created_at) VALUES (gen_random_uuid(), 'newadmin', '{h}', 'admin', 'password', true, false, 0, now()) ON CONFLICT (username) DO NOTHING;\"
+sql = f\"INSERT INTO users (id, username, password_hash, role, auth_mode, is_active, failed_login_attempts, created_at, updated_at) VALUES (gen_random_uuid(), 'newadmin', '{h}', 'admin', 'PASSWORD_ONLY', true, 0, now(), now()) ON CONFLICT (username) DO NOTHING;\"
 subprocess.run(['psql', '-h', 'postgres', '-U', 'postgres', '-d', 'ipview', '-c', sql], env={**os.environ, 'PGPASSWORD': 'postgres'})
 "
+```
+
+### Enable / Disable a User
+
+Manually enable a disabled user:
+
+```bash
+docker exec -it ipview-postgres-1 psql -U postgres -d ipview -c \
+  "UPDATE users SET is_active=true WHERE username='admin';"
+```
+
+Manually disable a user:
+
+```bash
+docker exec -it ipview-postgres-1 psql -U postgres -d ipview -c \
+  "UPDATE users SET is_active=false WHERE username='test';"
 ```
 
 ## License
