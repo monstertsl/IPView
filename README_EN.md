@@ -14,7 +14,6 @@
 An enterprise-grade IP address monitoring and management system built with **FastAPI + Vue 3 + PostgreSQL + Redis + Celery**. It automatically collects ARP tables from core switches via SNMP to provide real-time visibility into IP usage across the network.
 
 Ultra-lightweight deployment: a server with only 2 GB RAM and 2 GB disk comfortably handles 5000+ IPs of real-time monitoring. Measured on 7 switches with 5000 IPs, the whole project occupies about 724 MB on disk (images: 652.40 MB, volumes: 68.87 MB, container layers: 2.74 MB) and uses about 1.52 GB of memory at runtime (Docker itself: 277 MB; IPView: 1.25 GB).
-
 ---
 
 ![demo.png](./demo.png)
