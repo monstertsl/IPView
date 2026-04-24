@@ -4,7 +4,7 @@ x-backend-env: &backend-env
   CELERY_BROKER_URL: redis://redis:6379/1
   CELERY_RESULT_BACKEND: redis://redis:6379/2
   SECRET_KEY: change-me-in-production-use-64-char-random-hex
-  ENCRYPT_KEY: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+  ENCRYPT_KEY: change-me-in-production-use-64-char-random-hex
 
 services:
   postgres:
