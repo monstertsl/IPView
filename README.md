@@ -51,6 +51,29 @@
 ```bash
 git clone https://github.com/monstertsl/IPView.git
 cd IPView
+```
+
+> **首次启动前必读**：`docker-compose.yml` 顶部 `x-backend-env` 锚点中的 `SECRET_KEY` 与 `ENCRYPT_KEY` 默认是占位值，请务必替换为强随机值，否则后端会因密钥校验失败拒绝启动（`Field required` 或 `min_length` 错误）。
+>
+> 各自生成一把 64 位十六进制密钥：
+>
+> ```bash
+> openssl rand -hex 32   # 用作 SECRET_KEY
+> openssl rand -hex 32   # 用作 ENCRYPT_KEY
+> ```
+>
+> 把生成结果替换到 `docker-compose.yml` 中：
+>
+> ```yaml
+> x-backend-env: &backend-env
+>   SECRET_KEY: <粘贴第一条 openssl 输出>
+>   ENCRYPT_KEY: <粘贴第二条 openssl 输出>
+> ```
+>
+> - **`SECRET_KEY`**：JWT 签名密钥。可随时更换，更换后所有用户被强制重新登录，无数据损失。
+> - **`ENCRYPT_KEY`**：对称加密密钥，用于 TOTP / SNMP community / SNMPv3 凭据等。**部署后变更必须执行迁移脚本**，详见下文 [`## ENCRYPT_KEY 变更`](#encrypt_key-变更)。
+
+```bash
 docker compose up -d
 ```
 
@@ -219,6 +242,79 @@ IPView/
 - 登录连续失败 5 次自动禁用账号
 - SQL 查询使用 SQLAlchemy ORM 参数化，防注入
 - 所有输入经 Pydantic v2 严格校验
+
+## ENCRYPT_KEY 变更
+
+`ENCRYPT_KEY` 是用于加密以下数据库字段的对称密钥：
+
+- `users.totp_secret_encrypted`（TOTP 密钥）
+- `switches.community_encrypted`（SNMPv1/v2c community）
+- `switches.snmp_v3_config_encrypted`（SNMPv3 凭据）
+
+> ⚠️ **直接修改 `ENCRYPT_KEY` 后果严重**：旧密文将无法解密，TOTP 用户无法登录、所有交换机扫描失败。**必须使用项目根目录下的 `rotate_encrypt_key.py` 脚本完成重加密迁移。**
+
+### 1. 生成新 key
+
+```bash
+openssl rand -hex 32
+```
+
+### 2. 验证旧 key 是否仍然能解密所有数据（只读，不改库）
+
+```bash
+docker exec -i -e PYTHONPATH=/app -e OLD_ENCRYPT_KEY='<当前 ENCRYPT_KEY>' -e MODE=verify ipview-backend-1 python - < /root/IPView/rotate_encrypt_key.py
+```
+
+输出形如 `ok=N failed=0` 表示旧 key 完全正确，可继续。任何 `failed > 0` 都不要继续迁移。
+
+### 3. 停掉 Celery，避免迁移过程中扫描读取 community
+
+```bash
+docker compose stop celery celery-beat
+```
+
+### 4. 执行迁移：用旧 key 解密、用新 key 重加密、写回
+
+```bash
+docker exec -i -e PYTHONPATH=/app -e OLD_ENCRYPT_KEY='<旧 key>' -e NEW_ENCRYPT_KEY='<新 key>' -e MODE=rotate ipview-backend-1 python - < /root/IPView/rotate_encrypt_key.py
+```
+
+期望看到所有目标表的 `rotated=N`、无 `failed`。脚本在单一事务内执行，中途任何失败都会自动回滚，不会留下半套数据。
+
+### 5. 把新 key 写回 `docker-compose.yml`
+
+编辑顶部 `x-backend-env` 锚点：
+
+```yaml
+x-backend-env: &backend-env
+  ENCRYPT_KEY: <新 key>
+```
+
+### 6. 重启服务让新 key 生效
+
+```bash
+docker compose up -d backend celery celery-beat
+docker compose restart frontend   # 重建后 backend IP 变化时需要刷新 nginx upstream 缓存
+```
+
+### 7. 用新 key 再做一次只读校验
+
+```bash
+docker exec -i -e PYTHONPATH=/app -e OLD_ENCRYPT_KEY='<新 key>' -e MODE=verify ipview-backend-1 python - < /root/IPView/rotate_encrypt_key.py
+```
+
+`failed=0` 即迁移闭环完成。
+
+### 关于 `SECRET_KEY` 的更换
+
+`SECRET_KEY` 仅用于 JWT 签名，**不参与数据库加密**，因此可随时更换：
+
+```bash
+sed -i "s|SECRET_KEY: .*|SECRET_KEY: $(openssl rand -hex 32)|" docker-compose.yml
+docker compose up -d backend celery celery-beat
+```
+
+副作用：所有在线用户的旧 token 立刻失效，需要重新登录。
 
 ## 故障恢复
 

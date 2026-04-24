@@ -1,4 +1,5 @@
 from pydantic_settings import BaseSettings
+from pydantic import Field
 from functools import lru_cache
 
 
@@ -6,7 +7,11 @@ class Settings(BaseSettings):
     # App
     APP_NAME: str = "IPVIEW"
     DEBUG: bool = False
-    SECRET_KEY: str = "change-me-in-production-use-strong-random-key"
+    # Security-critical: must be supplied via env / docker-compose / .env.
+    # No default — application refuses to start if missing or too weak,
+    # so a misconfigured deployment can never silently fall back to a
+    # well-known key and forge JWTs or decrypt TOTP/SNMP secrets.
+    SECRET_KEY: str = Field(..., min_length=32)
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
 
     # Database
@@ -19,8 +24,9 @@ class Settings(BaseSettings):
     CELERY_BROKER_URL: str = "redis://localhost:6379/1"
     CELERY_RESULT_BACKEND: str = "redis://localhost:6379/2"
 
-    # Encryption key for TOTP/SNMPv3 secrets (32 bytes hex)
-    ENCRYPT_KEY: str = "0" * 64
+    # Encryption key for TOTP / SNMP community / SNMPv3 secrets.
+    # Same rules as SECRET_KEY: must be supplied, no default fallback.
+    ENCRYPT_KEY: str = Field(..., min_length=32)
 
     # System Config defaults
     ONLINE_DAYS: int = 7

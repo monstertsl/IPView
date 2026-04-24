@@ -51,6 +51,29 @@ Ultra-lightweight deployment: A lightweight server with just 2 GB of RAM and 2 G
 ```bash
 git clone https://github.com/monstertsl/IPView.git
 cd IPView
+```
+
+> **Read before first start**: The `SECRET_KEY` and `ENCRYPT_KEY` placeholders in the `x-backend-env` anchor at the top of `docker-compose.yml` MUST be replaced with strong random values. Otherwise the backend will refuse to start (Pydantic will raise `Field required` or `min_length` errors).
+>
+> Generate two 64-character hex keys, one for each:
+>
+> ```bash
+> openssl rand -hex 32   # use as SECRET_KEY
+> openssl rand -hex 32   # use as ENCRYPT_KEY
+> ```
+>
+> Paste them into `docker-compose.yml`:
+>
+> ```yaml
+> x-backend-env: &backend-env
+>   SECRET_KEY: <paste first openssl output here>
+>   ENCRYPT_KEY: <paste second openssl output here>
+> ```
+>
+> - **`SECRET_KEY`**: signs JWT tokens. Can be rotated at any time; existing users will be forced to log in again, but no data is lost.
+> - **`ENCRYPT_KEY`**: symmetric key for TOTP / SNMP community / SNMPv3 credentials. **After deployment, changing it requires the migration script** — see [`## ENCRYPT_KEY Rotation`](#encrypt_key-rotation) below.
+
+```bash
 docker compose up -d
 ```
 
@@ -219,6 +242,79 @@ IPView/
 - Accounts are automatically disabled after 5 consecutive failed login attempts
 - SQL queries use SQLAlchemy ORM parameterization to prevent injection
 - All input is strictly validated with Pydantic v2
+
+## ENCRYPT_KEY Rotation
+
+`ENCRYPT_KEY` is the symmetric key used to encrypt the following database fields:
+
+- `users.totp_secret_encrypted` (TOTP secrets)
+- `switches.community_encrypted` (SNMPv1/v2c community)
+- `switches.snmp_v3_config_encrypted` (SNMPv3 credentials)
+
+> ⚠️ **Changing `ENCRYPT_KEY` directly is destructive**: existing ciphertext will no longer decrypt — TOTP users cannot log in and every switch scan will fail. **You MUST use the `rotate_encrypt_key.py` script in the project root to perform a re-encryption migration.**
+
+### 1. Generate the new key
+
+```bash
+openssl rand -hex 32
+```
+
+### 2. Verify the OLD key still decrypts everything (read-only, no writes)
+
+```bash
+docker exec -i -e PYTHONPATH=/app -e OLD_ENCRYPT_KEY='<current ENCRYPT_KEY>' -e MODE=verify ipview-backend-1 python - < /root/IPView/rotate_encrypt_key.py
+```
+
+Output like `ok=N failed=0` means the old key is correct and you can proceed. If any row reports `failed > 0`, **stop and investigate** — do not run the rotation.
+
+### 3. Stop Celery so no scan reads community mid-rotation
+
+```bash
+docker compose stop celery celery-beat
+```
+
+### 4. Run the rotation: decrypt with old key, re-encrypt with new key, write back
+
+```bash
+docker exec -i -e PYTHONPATH=/app -e OLD_ENCRYPT_KEY='<old key>' -e NEW_ENCRYPT_KEY='<new key>' -e MODE=rotate ipview-backend-1 python - < /root/IPView/rotate_encrypt_key.py
+```
+
+Expected: every target table reports `rotated=N` with no `failed`. The script runs inside a single transaction; any failure rolls back automatically, never leaving partial data.
+
+### 5. Update `docker-compose.yml` with the new key
+
+Edit the top-level `x-backend-env` anchor:
+
+```yaml
+x-backend-env: &backend-env
+  ENCRYPT_KEY: <new key>
+```
+
+### 6. Restart services so the new key takes effect
+
+```bash
+docker compose up -d backend celery celery-beat
+docker compose restart frontend   # nginx caches the backend container IP; restart it after a backend recreate
+```
+
+### 7. Verify again with the new key
+
+```bash
+docker exec -i -e PYTHONPATH=/app -e OLD_ENCRYPT_KEY='<new key>' -e MODE=verify ipview-backend-1 python - < /root/IPView/rotate_encrypt_key.py
+```
+
+`failed=0` on every row means the rotation is fully complete.
+
+### Rotating `SECRET_KEY`
+
+`SECRET_KEY` is only used to sign JWTs and is **not** involved in database encryption, so it can be rotated at any time:
+
+```bash
+sed -i "s|SECRET_KEY: .*|SECRET_KEY: $(openssl rand -hex 32)|" docker-compose.yml
+docker compose up -d backend celery celery-beat
+```
+
+Side effect: every active user's existing token becomes invalid immediately — they have to log in again.
 
 ## Disaster Recovery
 
