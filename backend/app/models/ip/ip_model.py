@@ -16,6 +16,9 @@ class IPStatus(str, enum.Enum):
 class IPEventType(str, enum.Enum):
     NEW = "NEW"
     MAC_CHANGED = "MAC_CHANGED"
+    # Emitted when an IP transitions to UNUSED and its mac_address is cleared.
+    # The event captures which MAC last occupied this IP before release.
+    IP_RELEASED = "IP_RELEASED"
 
 
 class IPSubnet(Base):

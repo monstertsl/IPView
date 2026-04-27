@@ -105,13 +105,13 @@
                 <n-descriptions-item label="最后发现">{{ formatTime(searchData.record.last_seen) }}</n-descriptions-item>
               </n-descriptions>
               <n-text strong style="display:block; margin-bottom: 6px;">历史 MAC 记录（最近 5 条）</n-text>
-              <n-data-table v-if="searchData.history?.length" :columns="ipHistoryColumns" :data="searchData.history" :bordered="false" size="small" />
+              <n-data-table v-if="ipSearchHistory.length" :columns="ipHistoryColumns" :data="ipSearchHistory" :bordered="false" size="small" />
               <n-text v-else depth="3">无历史记录</n-text>
             </template>
             <!-- MAC search result -->
             <template v-else-if="searchData?.type === 'mac'">
               <n-descriptions :column="2" bordered size="small" label-placement="left" style="margin-bottom: 12px;">
-                <n-descriptions-item label="MAC 地址">{{ searchQ }}</n-descriptions-item>
+                <n-descriptions-item label="MAC 地址">{{ normalizedQuery }}</n-descriptions-item>
                 <n-descriptions-item label="当前 IP">
                   <span v-for="(ip, i) in (searchData.current_ips || [])" :key="ip">
                     <n-tag type="success" size="small" style="margin-right: 4px;">{{ ip }}</n-tag>
@@ -120,7 +120,7 @@
                 </n-descriptions-item>
               </n-descriptions>
               <n-text strong style="display:block; margin-bottom: 6px;">历史 IP 记录（最近 5 条）</n-text>
-              <n-data-table v-if="searchData.history?.length" :columns="macHistoryColumns" :data="searchData.history" :bordered="false" size="small" />
+              <n-data-table v-if="macSearchHistory.length" :columns="macHistoryColumns" :data="macSearchHistory" :bordered="false" size="small" />
               <n-text v-else depth="3">无历史记录</n-text>
             </template>
           </div>
@@ -167,6 +167,7 @@
       <div v-if="tooltipHistory.length" v-for="h in tooltipHistory" :key="h.id" class="tooltip-row" :style="{ color: h.isCurrent ? '#18a058' : '' }">
         {{ h.mac }}
         <span v-if="h.isCurrent" style="color:#18a058">(当前)</span>
+        <span v-else-if="h.isLast">(最后)</span>
       </div>
       <n-text v-else depth-3 >无历史记录</n-text>
     </div>
@@ -199,14 +200,32 @@ const subnets = ref<IPSubnet[]>([])
 const selectedSubnet = ref<IPSubnet | null>(null)
 const bulkData = ref({ subnet: '', total: 0, online: 0, offline: 0, unused: 0, records: [] as IPRecord[] })
 const searchQ = ref('')
+const normalizedQuery = ref('')
 const searchResult = ref<any | null>(null)  // kept for v-if in template
 const searchData = ref<any | null>(null)
 
+// Filtered history lists for the search panel.
+// IP_RELEASED is an internal lifecycle marker — it carries the same MAC as the
+// preceding NEW/MAC_CHANGED event, so showing it would just produce a visual
+// duplicate. We hide it from search tables; the underlying event row remains
+// in the database for auditing.
+const ipSearchHistory = computed(() =>
+  (searchData.value?.history || []).filter((h: any) => h.event_type !== 'IP_RELEASED')
+)
+const macSearchHistory = computed(() =>
+  (searchData.value?.history || []).filter((h: any) => h.event_type !== 'IP_RELEASED')
+)
+
 const ipHistoryColumns = [
-  { title: 'MAC 地址', key: 'mac_address', render: (row: any) => {
+  { title: 'MAC 地址', key: 'mac_address', render: (row: any, rowIndex: number) => {
     const isCurrent = searchData.value?.current_mac && row.mac_address.toUpperCase() === searchData.value.current_mac.toUpperCase()
-    return h('span', { style: isCurrent ? { color: '#18a058', fontWeight: '600' } : {} }, 
-      isCurrent ? `${row.mac_address} (当前)` : row.mac_address)
+    const isUnused = searchData.value?.record?.status === 'UNUSED'
+    const isLast = !isCurrent && isUnused && rowIndex === 0
+    let suffix = ''
+    if (isCurrent) suffix = ' (当前)'
+    else if (isLast) suffix = ' (最后)'
+    return h('span', { style: isCurrent ? { color: '#18a058', fontWeight: '600' } : {} },
+      `${row.mac_address}${suffix}`)
   }},
   { title: '事件', key: 'event_type', width: 120 },
   { title: '时间', key: 'seen_at', width: 180, render: (row: any) => formatTime(row.seen_at) },
@@ -235,7 +254,7 @@ const newSubnet = reactive({ cidr: '', description: '' })
 // Tooltip
 const tooltipVisible = ref(false)
 const tooltipIP = ref<IPRecord | null>(null)
-const tooltipHistory = ref<{ mac: string; isCurrent: boolean }[]>([])
+const tooltipHistory = ref<{ mac: string; isCurrent: boolean; isLast: boolean }[]>([])
 const tooltipStyle = reactive({ top: '0px', left: '0px' })
 
 const tooltipThemeStyle = computed(() => isDark.value
@@ -296,8 +315,13 @@ async function addSubnet() {
 
 async function handleSearch() {
   if (!searchQ.value.trim()) { searchResult.value = null; searchData.value = null; fuzzySubnets.value = null; return }
-  // Normalize MAC address format: replace '-' with ':'
-  const query = searchQ.value.replace(/-/g, ':')
+  // Normalize MAC input: accept ':' / '-' separators in any case, emit the
+  // canonical upper-case colon form used by the backend. Non-MAC queries
+  // (IP / CIDR) are just trimmed.
+  const raw = searchQ.value.trim()
+  const macMatch = /^[0-9A-Fa-f]{2}([:\-][0-9A-Fa-f]{2}){5}$/.test(raw)
+  const query = macMatch ? raw.replace(/-/g, ':').toUpperCase() : raw
+  normalizedQuery.value = query
   try {
     const res = await api.get('/ip/search', { params: { q: query } })
     fuzzySubnets.value = null
@@ -347,8 +371,10 @@ const tooltipCache = ref<Record<string, IPTooltipData>>({})
 
 // Prefetch tooltip data for all IPs in the current subnet (fire and forget)
 async function prefetchTooltips(records: IPRecord[]) {
-  // Only prefetch IPs that have been seen (have MAC) to save requests
-  const active = records.filter(r => r.mac_address)
+  // Prefetch every IP that actually exists in the DB (id is non-empty).
+  // We don't gate on mac_address because UNUSED rows have a NULL mac but still
+  // carry meaningful event history (NEW / MAC_CHANGED / IP_RELEASED).
+  const active = records.filter(r => r.id)
   for (const ip of active) {
     if (tooltipCache.value[ip.ip_address]) continue
     try {
@@ -385,13 +411,35 @@ function showTooltip(ip: IPRecord, event: MouseEvent) {
     tooltipStyle.left = left + 'px'
   }, 0)
 
-  // Use cached data if available, no request on hover
+  // Use cached data if available, otherwise lazily fetch in the background
+  // and render once it arrives. This covers IPs missed by the bulk prefetch.
+  const renderHistory = (data: IPTooltipData) => {
+    // Filter out IP_RELEASED events — they are an internal lifecycle marker,
+    // not a "device MAC" event. The remaining list is the actual sequence of
+    // devices that occupied this IP.
+    const liveEvents = (data.history || []).filter((h: any) => h.event_type !== 'IP_RELEASED')
+    const isUnused = data.status === 'UNUSED'
+    tooltipHistory.value = liveEvents.map((h: any, i: number) => ({
+      mac: h.mac_address,
+      isCurrent: i === 0 && !isUnused,
+      isLast: i === 0 && isUnused,
+    }))
+  }
+
   const cached = tooltipCache.value[ip.ip_address]
   if (cached) {
-    tooltipHistory.value = cached.history.map((h: any, i: number) => ({
-      mac: h.mac_address,
-      isCurrent: i === 0
-    }))
+    renderHistory(cached)
+  } else if (ip.id) {
+    // Only fetch IPs that actually exist in the DB (id non-empty);
+    // pristine subnet slots have id="" and have nothing to show.
+    tooltipHistory.value = []
+    api.get<IPTooltipData>(`/ip/ip/${ip.ip_address}/tooltip`)
+      .then(res => {
+        tooltipCache.value[ip.ip_address] = res.data
+        // Only render if the user is still hovering this IP
+        if (tooltipIP.value?.ip_address === ip.ip_address) renderHistory(res.data)
+      })
+      .catch(() => { /* ignore */ })
   } else {
     tooltipHistory.value = []
   }

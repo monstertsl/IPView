@@ -215,11 +215,33 @@ def run_scan_task(self, task_id: str):
                     .where(IPRecord.last_seen != None, IPRecord.last_seen < online_cutoff, IPRecord.last_seen >= cleanup_cutoff)
                     .values(status=IPStatus.OFFLINE)
                 )
-                # UNUSED: last_seen older than cleanup_days
+
+                # Find rows about to become UNUSED that still carry a stale MAC.
+                # We emit one IP_RELEASED event per such row before clearing the
+                # mac_address so that the event log keeps a permanent record of
+                # which device last occupied this IP, while the live record
+                # truthfully reports "no device here".
+                released_rows = (await db.execute(
+                    select(IPRecord)
+                    .where(
+                        IPRecord.last_seen != None,
+                        IPRecord.last_seen < cleanup_cutoff,
+                        IPRecord.mac_address.isnot(None),
+                    )
+                )).scalars().all()
+                for r in released_rows:
+                    db.add(IPEvent(
+                        ip_address=str(r.ip_address).split('/')[0],
+                        mac_address=r.mac_address,
+                        event_type=IPEventType.IP_RELEASED,
+                        seen_at=now,
+                    ))
+
+                # UNUSED: last_seen older than cleanup_days — also clear mac
                 await db.execute(
                     update(IPRecord)
                     .where(IPRecord.last_seen != None, IPRecord.last_seen < cleanup_cutoff)
-                    .values(status=IPStatus.UNUSED)
+                    .values(status=IPStatus.UNUSED, mac_address=None)
                 )
                 await db.commit()
 

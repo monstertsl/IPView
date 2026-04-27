@@ -177,8 +177,16 @@ async def search_ip(
             {"ip_address": str(e.ip_address), "event_type": e.event_type.value if hasattr(e.event_type, 'value') else str(e.event_type), "seen_at": e.seen_at.isoformat() if e.seen_at else None}
             for e in events
         ]
-        # Current IPs using this MAC
-        current_ips = [str(r.ip_address).split('/')[0] for r in records]
+        # Current IP using this MAC — only the most recently seen record counts
+        # as "current". When a device moves to a new IP, the old IPRecord row
+        # may still carry the MAC for a while (until cleanup_days turns it
+        # UNUSED and triggers IP_RELEASED). We pick the latest last_seen so the
+        # UI reports the single IP the device actually uses right now.
+        if records:
+            latest = max(records, key=lambda r: r.last_seen or datetime.min)
+            current_ips = [str(latest.ip_address).split('/')[0]]
+        else:
+            current_ips = []
         return {
             "type": "mac",
             "records": [_iprecord_to_response(r) for r in records],
