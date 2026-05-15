@@ -11,18 +11,19 @@ from app.models.user.user_model import User, UserRole
 
 
 async def _cleanup_old_logs(db: AsyncSession) -> dict:
-    """Delete login/scan history older than the configured retention windows."""
+    """Delete login/scan/system history older than the configured retention window."""
+    from app.models.log.system_log_model import SystemLog
+
     cfg = (await db.execute(select(SystemConfig).limit(1))).scalar_one_or_none()
-    login_retention = cfg.log_retention_days_login if cfg else settings.LOG_RETENTION_DAYS_LOGIN
-    scan_retention = cfg.log_retention_days_scan if cfg else settings.LOG_RETENTION_DAYS_SCAN
+    retention = cfg.log_retention_days if cfg else settings.LOG_RETENTION_DAYS
 
-    login_cutoff = datetime.utcnow() - timedelta(days=login_retention)
-    scan_cutoff = datetime.utcnow() - timedelta(days=scan_retention)
+    cutoff = datetime.utcnow() - timedelta(days=retention)
 
-    r1 = await db.execute(delete(LoginLog).where(LoginLog.created_at < login_cutoff))
-    r2 = await db.execute(delete(ScanTask).where(ScanTask.created_at < scan_cutoff))
+    r1 = await db.execute(delete(LoginLog).where(LoginLog.created_at < cutoff))
+    r2 = await db.execute(delete(ScanTask).where(ScanTask.created_at < cutoff))
+    r3 = await db.execute(delete(SystemLog).where(SystemLog.created_at < cutoff))
     await db.commit()
-    return {"login_deleted": r1.rowcount or 0, "scan_deleted": r2.rowcount or 0}
+    return {"login_deleted": r1.rowcount or 0, "scan_deleted": r2.rowcount or 0, "system_deleted": r3.rowcount or 0}
 
 
 async def _deactivate_inactive_users(db: AsyncSession) -> dict:
@@ -35,6 +36,7 @@ async def _deactivate_inactive_users(db: AsyncSession) -> dict:
       on the next request.
     """
     from app.core.rate_limit import invalidate_user_status  # avoid import cycle at module load
+    from app.core.audit import write_system_log
 
     cfg = (await db.execute(select(SystemConfig).limit(1))).scalar_one_or_none()
     limit_days = cfg.inactive_days_limit if cfg else settings.INACTIVE_DAYS_LIMIT
@@ -43,7 +45,7 @@ async def _deactivate_inactive_users(db: AsyncSession) -> dict:
 
     cutoff = datetime.utcnow() - timedelta(days=limit_days)
 
-    stmt = select(User.id).where(
+    stmt = select(User.id, User.username).where(
         and_(
             User.is_active.is_(True),
             User.role != UserRole.admin,
@@ -53,19 +55,26 @@ async def _deactivate_inactive_users(db: AsyncSession) -> dict:
             ),
         )
     )
-    ids = [row[0] for row in (await db.execute(stmt)).all()]
-    if not ids:
+    rows = (await db.execute(stmt)).all()
+    if not rows:
         return {"disabled": 0, "limit_days": limit_days}
 
+    ids = [row[0] for row in rows]
+    usernames = [row[1] for row in rows]
     await db.execute(update(User).where(User.id.in_(ids)).values(is_active=False))
     await db.commit()
 
-    for uid in ids:
+    for uid, username in zip(ids, usernames):
         try:
             await invalidate_user_status(str(uid))
         except Exception:
             pass
+        await write_system_log(db, action="auto_disable", target_type="user",
+                               target_id=str(uid),
+                               detail=f"系统自动禁用不活跃用户 {username}（超过 {limit_days} 天未登录）",
+                               operator="system")
 
+    await db.commit()
     return {"disabled": len(ids), "limit_days": limit_days}
 
 

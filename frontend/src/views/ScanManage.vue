@@ -17,8 +17,7 @@
             </n-grid>
             <n-divider title-placement="left" style="font-size:12px;margin:8px 0">日志保留策略</n-divider>
             <n-grid :cols="2" :x-gap="12">
-              <n-gi><n-form-item label="登录日志保留（天）"><n-input-number v-model:value="config.log_retention_days_login" :min="7" :max="365" /></n-form-item></n-gi>
-              <n-gi><n-form-item label="扫描日志保留（天）"><n-input-number v-model:value="config.log_retention_days_scan" :min="7" :max="365" /></n-form-item></n-gi>
+              <n-gi><n-form-item label="日志保留（天）"><n-input-number v-model:value="config.log_retention_days" :min="7" :max="365" /></n-form-item></n-gi>
             </n-grid>
             <n-divider title-placement="left" style="font-size:12px;margin:8px 0">扫描频率</n-divider>
             <n-grid :cols="2" :x-gap="12">

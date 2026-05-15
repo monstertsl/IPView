@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from typing import List
@@ -7,6 +7,7 @@ import json
 from app.core.database import get_db
 from app.core.auth import require_role
 from app.core.security import encrypt_data, decrypt_data
+from app.core.audit import write_system_log
 from app.models.switch.switch_model import Switch, SNMPVersion
 from app.schemas.switch import (
     SwitchCreate, SwitchUpdate, SwitchResponse,
@@ -126,7 +127,7 @@ async def get_switch(switch_id: str, db: AsyncSession = Depends(get_db), current
 
 
 @router.post("", response_model=SwitchResponse, status_code=status.HTTP_201_CREATED)
-async def create_switch(body: SwitchCreate, db: AsyncSession = Depends(get_db), current_user=Depends(require_role("admin"))):
+async def create_switch(body: SwitchCreate, request: Request, db: AsyncSession = Depends(get_db), current_user=Depends(require_role("admin"))):
     from sqlalchemy import cast, Text
     result = await db.execute(select(Switch).where(cast(Switch.ip, Text) == body.ip))
     if result.scalar_one_or_none():
@@ -148,42 +149,75 @@ async def create_switch(body: SwitchCreate, db: AsyncSession = Depends(get_db), 
     db.add(switch)
     await db.commit()
     await db.refresh(switch)
+
+    await write_system_log(db, action="create", target_type="switch",
+                           target_id=str(switch.id),
+                           detail=f"添加交换机 {body.ip}，SNMP版本 {body.snmp_version.value}",
+                           operator=current_user.username,
+                           ip_address=request.headers.get("x-real-ip") or (request.client.host if request.client else None))
+    await db.commit()
+
     return _switch_to_response(switch)
 
 
 @router.patch("/{switch_id}", response_model=SwitchResponse)
-async def update_switch(switch_id: str, body: SwitchUpdate, db: AsyncSession = Depends(get_db), current_user=Depends(require_role("admin"))):
+async def update_switch(switch_id: str, body: SwitchUpdate, request: Request, db: AsyncSession = Depends(get_db), current_user=Depends(require_role("admin"))):
     result = await db.execute(select(Switch).where(Switch.id == switch_id))
     s = result.scalar_one_or_none()
     if not s:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Switch not found")
 
+    changes = []
     if body.mac is not None:
+        changes.append(f"MAC: {body.mac}")
         s.mac = body.mac
     if body.snmp_version is not None:
+        changes.append(f"SNMP版本: {body.snmp_version.value}")
         s.snmp_version = body.snmp_version
     s.community_encrypted = _merge_community(s.community_encrypted, body.community)
     if body.snmp_v3_config is not None:
         s.snmp_v3_config_encrypted = _merge_snmp_v3(s.snmp_v3_config_encrypted, body.snmp_v3_config)
     if body.location is not None:
+        changes.append(f"位置: {body.location}")
         s.location = body.location
     if body.description is not None:
+        changes.append(f"描述: {body.description}")
         s.description = body.description
     if body.is_active is not None:
+        action_text = "启用" if body.is_active else "禁用"
+        changes.append(f"状态: {action_text}")
         s.is_active = body.is_active
 
     await db.commit()
     await db.refresh(s)
+
+    if changes:
+        await write_system_log(db, action="update", target_type="switch",
+                               target_id=switch_id,
+                               detail=f"修改交换机 {s.ip}：{'，'.join(changes)}",
+                               operator=current_user.username,
+                               ip_address=request.headers.get("x-real-ip") or (request.client.host if request.client else None))
+        await db.commit()
+
     return _switch_to_response(s)
 
 
 @router.delete("/{switch_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_switch(switch_id: str, db: AsyncSession = Depends(get_db), current_user=Depends(require_role("admin"))):
+async def delete_switch(switch_id: str, request: Request, db: AsyncSession = Depends(get_db), current_user=Depends(require_role("admin"))):
     result = await db.execute(select(Switch).where(Switch.id == switch_id))
     s = result.scalar_one_or_none()
     if not s:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Switch not found")
+
+    ip = str(s.ip)
     await db.delete(s)
+    await db.commit()
+
+    await write_system_log(db, action="delete", target_type="switch",
+                           target_id=switch_id,
+                           detail=f"删除交换机 {ip}",
+                           operator=current_user.username,
+                           ip_address=request.headers.get("x-real-ip") or (request.client.host if request.client else None))
     await db.commit()
 
 

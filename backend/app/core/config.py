@@ -33,8 +33,7 @@ class Settings(BaseSettings):
     CLEANUP_DAYS: int = 30
     LOGIN_FAIL_LIMIT: int = 5
     INACTIVE_DAYS_LIMIT: int = 90
-    LOG_RETENTION_DAYS_LOGIN: int = 90
-    LOG_RETENTION_DAYS_SCAN: int = 30
+    LOG_RETENTION_DAYS: int = 90
 
     # SNMP defaults
     SNMP_TIMEOUT: int = 3

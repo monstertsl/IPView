@@ -27,7 +27,7 @@ class LoginLogQuery(BaseModel):
 
 
 class CleanupRequest(BaseModel):
-    type: Literal["login", "scan"]
+    type: Literal["login", "scan", "system"]
     days: int = Field(default=30, ge=1, le=365)
 
 

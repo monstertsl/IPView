@@ -5,11 +5,11 @@
       <n-tab-pane name="login" tab="登录日志">
         <n-card :bordered="false" size="small" class="log-card">
           <n-space style="margin-bottom: 16px" :wrap="true" align="center">
-            <n-input v-model:value="loginQ.username" placeholder="用户名" clearable style="width: 140px" />
+            <n-input v-model:value="loginQ.username" placeholder="用户名" clearable style="width: 140px" @keyup.enter="loadLoginLogs" />
             <n-select v-model:value="loginQ.success" :options="successOptions" placeholder="状态" clearable style="width: 120px" />
-            <n-input v-model:value="loginQ.ip_address" placeholder="IP 地址" clearable style="width: 140px" />
+            <n-input v-model:value="loginQ.ip_address" placeholder="IP 地址" clearable style="width: 140px" @keyup.enter="loadLoginLogs" />
             <n-date-picker v-model:value="loginQ.range" type="daterange" clearable style="width: 280px" />
-            <n-button type="primary" @click="filterLoginLogs">
+            <n-button type="primary" @click="loadLoginLogs" :loading="loadingLogin">
               <template #icon><n-icon><search-outline /></n-icon></template>
               查询
             </n-button>
@@ -17,12 +17,16 @@
           </n-space>
           <n-data-table 
             :columns="loginColumns" 
-            :data="loginLogsFiltered" 
+            :data="loginLogs" 
             :bordered="false" 
             size="small" 
             :pagination="loginPagination"
             :loading="loadingLogin"
+            :remote="true"
+            :row-count="loginTotal"
             class="log-table"
+            @update:page="(p: number) => { loginPagination.page = p; loadLoginLogs() }"
+            @update:page-size="(ps: number) => { loginPagination.pageSize = ps; loginPagination.page = 1; loadLoginLogs() }"
           />
         </n-card>
       </n-tab-pane>
@@ -34,7 +38,7 @@
             <n-select v-model:value="scanQ.status" :options="scanStatusOptions" placeholder="状态" clearable style="width: 120px" />
             <n-select v-model:value="scanQ.triggered_by" :options="scanTriggerOptions" placeholder="触发方式" clearable style="width: 120px" />
             <n-date-picker v-model:value="scanQ.range" type="daterange" clearable style="width: 280px" />
-            <n-button type="primary" @click="filterScanLogs">
+            <n-button type="primary" @click="loadScanLogs" :loading="loadingScan">
               <template #icon><n-icon><search-outline /></n-icon></template>
               查询
             </n-button>
@@ -42,12 +46,46 @@
           </n-space>
           <n-data-table 
             :columns="scanColumns" 
-            :data="scanLogsFiltered" 
+            :data="scanLogs" 
             :bordered="false" 
             size="small"
             :loading="loadingScan"
             :pagination="scanPagination"
+            :remote="true"
+            :row-count="scanTotal"
             class="log-table"
+            @update:page="(p: number) => { scanPagination.page = p; loadScanLogs() }"
+            @update:page-size="(ps: number) => { scanPagination.pageSize = ps; scanPagination.page = 1; loadScanLogs() }"
+          />
+        </n-card>
+      </n-tab-pane>
+
+      <!-- System logs -->
+      <n-tab-pane name="system" tab="系统日志">
+        <n-card :bordered="false" size="small" class="log-card">
+          <n-space style="margin-bottom: 16px" :wrap="true" align="center">
+            <n-select v-model:value="sysQ.action" :options="sysActionOptions" placeholder="操作类型" clearable style="width: 140px" />
+            <n-select v-model:value="sysQ.target_type" :options="sysTargetOptions" placeholder="目标类型" clearable style="width: 120px" />
+            <n-input v-model:value="sysQ.operator" placeholder="操作者" clearable style="width: 120px" @keyup.enter="loadSystemLogs" />
+            <n-date-picker v-model:value="sysQ.range" type="daterange" clearable style="width: 280px" />
+            <n-button type="primary" @click="loadSystemLogs" :loading="loadingSystem">
+              <template #icon><n-icon><search-outline /></n-icon></template>
+              查询
+            </n-button>
+            <n-button type="warning" @click="cleanupLogs('system')" :loading="cleaning">清理旧日志</n-button>
+          </n-space>
+          <n-data-table 
+            :columns="systemColumns" 
+            :data="systemLogs" 
+            :bordered="false" 
+            size="small"
+            :loading="loadingSystem"
+            :pagination="systemPagination"
+            :remote="true"
+            :row-count="systemTotal"
+            class="log-table"
+            @update:page="(p: number) => { systemPagination.page = p; loadSystemLogs() }"
+            @update:page-size="(ps: number) => { systemPagination.pageSize = ps; systemPagination.page = 1; loadSystemLogs() }"
           />
         </n-card>
       </n-tab-pane>
@@ -57,25 +95,43 @@
 
 <script setup lang="ts">
 import { ref, reactive, onMounted, h } from 'vue'
-import { useMessage, NTag, NButton, NIcon, NSelect, NDatePicker } from 'naive-ui'
-import { SearchOutline, RefreshOutline } from '@vicons/ionicons5'
-import { formatDateTime, parseUTC } from '@/utils/time'
+import { useMessage, NTag, NIcon } from 'naive-ui'
+import { SearchOutline } from '@vicons/ionicons5'
+import { formatDateTime } from '@/utils/time'
 import api from '@/api'
 
 const message = useMessage()
 const cleaning = ref(false)
 const loadingLogin = ref(false)
 const loadingScan = ref(false)
-const loginLogs = ref<any[]>([])
-const loginLogsFiltered = ref<any[]>([])
-const scanLogs = ref<any[]>([])
-const scanLogsFiltered = ref<any[]>([])
+const loadingSystem = ref(false)
 
-// 扫描日志查询条件
+// Data
+const loginLogs = ref<any[]>([])
+const scanLogs = ref<any[]>([])
+const systemLogs = ref<any[]>([])
+const loginTotal = ref(0)
+const scanTotal = ref(0)
+const systemTotal = ref(0)
+
+// Login query
+const loginQ = reactive({
+  username: '', 
+  success: null as null | boolean, 
+  ip_address: '', 
+  range: null as null | [number, number] 
+})
+
+const successOptions = [
+  { label: '成功', value: true }, 
+  { label: '失败', value: false }
+]
+
+// Scan query
 const scanQ = reactive({
   status: null as string | null,
   triggered_by: null as string | null,
-  range: null as [number, number] | null,
+  range: null as null | [number, number],
 })
 
 const scanStatusOptions = [
@@ -89,32 +145,42 @@ const scanTriggerOptions = [
   { label: '手动', value: 'MANUAL' },
 ]
 
+// System query
+const sysQ = reactive({
+  action: null as string | null,
+  target_type: null as string | null,
+  operator: '' as string,
+  range: null as null | [number, number],
+})
+
+const sysActionOptions = [
+  { label: '创建', value: 'create' },
+  { label: '修改', value: 'update' },
+  { label: '删除', value: 'delete' },
+  { label: '重置密码', value: 'reset_password' },
+  { label: '自动禁用', value: 'auto_disable' },
+]
+
+const sysTargetOptions = [
+  { label: '用户', value: 'user' },
+  { label: '交换机', value: 'switch' },
+]
+
+// Pagination
 function createPagination() {
-  const pagination = reactive({
+  return reactive({
     page: 1,
-    pageSize: 10,
+    pageSize: 20,
     showSizePicker: true,
-    pageSizes: [10, 20, 50, 100],
-    onUpdatePage: (p: number) => { pagination.page = p },
-    onUpdatePageSize: (ps: number) => { pagination.pageSize = ps; pagination.page = 1 },
+    pageSizes: [20, 50, 100],
   })
-  return pagination
 }
 
 const loginPagination = createPagination()
 const scanPagination = createPagination()
-const loginQ = reactive({
-  username: '', 
-  success: null as null | boolean, 
-  ip_address: '', 
-  range: null as null | [number, number] 
-})
+const systemPagination = createPagination()
 
-const successOptions = [
-  { label: '成功', value: true }, 
-  { label: '失败', value: false }
-]
-
+// Columns
 const loginColumns = [
   { title: '用户名', key: 'username', width: 120 },
   { 
@@ -123,30 +189,21 @@ const loginColumns = [
     width: 80,
     render: (r: any) => h(NTag, { 
       type: r.success ? 'success' : 'error', 
-      size: 'small',
-      bordered: false
+      size: 'small', bordered: false
     }, { default: () => r.success ? '成功' : '失败' }) 
   },
   { title: 'IP 地址', key: 'ip_address', width: 140 },
   { title: 'User-Agent', key: 'user_agent', ellipsis: { tooltip: true } },
   { title: '消息', key: 'message', ellipsis: { tooltip: true } },
-  { 
-    title: '时间', 
-    key: 'created_at', 
-    width: 180,
-    render: (r: any) => formatDateTime(r.created_at)
-  },
+  { title: '时间', key: 'created_at', width: 180, render: (r: any) => formatDateTime(r.created_at) },
 ]
 
 const scanColumns = [
   { 
-    title: '状态', 
-    key: 'status', 
-    width: 90,
+    title: '状态', key: 'status', width: 90,
     render: (r: any) => h(NTag, { 
       type: r.status === 'SUCCESS' ? 'success' : r.status === 'PARTIAL' ? 'warning' : r.status === 'FAILED' ? 'error' : 'info', 
-      size: 'small',
-      bordered: false
+      size: 'small', bordered: false
     }, { default: () => r.status }) 
   },
   { title: '触发', key: 'triggered_by', width: 90 },
@@ -154,8 +211,7 @@ const scanColumns = [
   { title: '更新', key: 'updated_ips', width: 80 },
   { title: '耗时(s)', key: 'duration', width: 80 },
   { 
-    title: '消息', 
-    key: 'message',
+    title: '消息', key: 'message',
     ellipsis: { tooltip: true },
     render: (r: any) => {
       if (r.error_message) return r.error_message
@@ -163,106 +219,117 @@ const scanColumns = [
       return '-'
     }
   },
+  { title: '时间', key: 'created_at', width: 180, render: (r: any) => formatDateTime(r.created_at) },
+]
+
+const actionLabelMap: Record<string, string> = {
+  create: '创建', update: '修改', delete: '删除',
+  reset_password: '重置密码', auto_disable: '自动禁用',
+}
+
+const targetTypeMap: Record<string, string> = {
+  user: '用户', switch: '交换机',
+}
+
+const systemColumns = [
   { 
-    title: '时间', 
-    key: 'created_at', 
-    width: 180,
-    render: (r: any) => formatDateTime(r.created_at)
+    title: '操作', key: 'action', width: 100,
+    render: (r: any) => h(NTag, { 
+      type: r.action === 'create' ? 'success' : r.action === 'delete' ? 'error' : r.action === 'auto_disable' ? 'warning' : 'info',
+      size: 'small', bordered: false
+    }, { default: () => actionLabelMap[r.action] || r.action })
   },
+  { 
+    title: '目标类型', key: 'target_type', width: 90,
+    render: (r: any) => targetTypeMap[r.target_type] || r.target_type
+  },
+  { title: '详情', key: 'detail', ellipsis: { tooltip: true } },
+  { title: '操作者', key: 'operator', width: 100 },
+  { title: 'IP', key: 'ip_address', width: 130 },
+  { title: '时间', key: 'created_at', width: 180, render: (r: any) => formatDateTime(r.created_at) },
 ]
 
 onMounted(async () => {
-  await loadLoginLogs()
-  await loadScanLogs()
+  await Promise.all([loadLoginLogs(), loadScanLogs(), loadSystemLogs()])
 })
 
 async function loadLoginLogs() {
   loadingLogin.value = true
   try {
-    const res = await api.get('/logs/login')
-    if (res.data?.items) {
-      loginLogs.value = res.data.items
-    } else if (Array.isArray(res.data)) {
-      loginLogs.value = res.data
-    } else {
-      loginLogs.value = []
+    const params: any = {
+      page: loginPagination.page,
+      page_size: loginPagination.pageSize,
     }
-    filterLoginLogs()
+    if (loginQ.username) params.username = loginQ.username
+    if (loginQ.success !== null) params.success = loginQ.success
+    if (loginQ.ip_address) params.ip_address = loginQ.ip_address
+    if (loginQ.range) {
+      params.start_date = new Date(loginQ.range[0]).toISOString()
+      params.end_date = new Date(loginQ.range[1] + 86400000 - 1).toISOString()
+    }
+    const res = await api.get('/logs/login', { params })
+    loginLogs.value = res.data?.items || []
+    loginTotal.value = res.data?.total || 0
   } catch (e: any) { 
     message.error(e.response?.data?.detail || '加载登录日志失败') 
     loginLogs.value = []
-    loginLogsFiltered.value = []
   } finally {
     loadingLogin.value = false
   }
 }
 
-function filterLoginLogs() {
-  loginPagination.page = 1
-  let data = loginLogs.value
-  if (loginQ.username) {
-    data = data.filter((r: any) => r.username?.includes(loginQ.username))
-  }
-  if (loginQ.success !== null) {
-    data = data.filter((r: any) => r.success === loginQ.success)
-  }
-  if (loginQ.ip_address) {
-    data = data.filter((r: any) => r.ip_address?.includes(loginQ.ip_address))
-  }
-  if (loginQ.range) {
-    const start = loginQ.range[0]
-    const end = loginQ.range[1] + 86400000 - 1000
-    data = data.filter((r: any) => {
-      const t = parseUTC(r.created_at)?.getTime()
-      return t != null && t >= start && t <= end
-    })
-  }
-  loginLogsFiltered.value = data
-}
-
 async function loadScanLogs() {
   loadingScan.value = true
   try {
-    const res = await api.get('/scan/tasks')
-    if (res.data?.items) {
-      scanLogs.value = res.data.items
-    } else if (Array.isArray(res.data)) {
-      scanLogs.value = res.data
-    } else {
-      scanLogs.value = []
+    const params: any = {
+      page: scanPagination.page,
+      page_size: scanPagination.pageSize,
     }
-    filterScanLogs()
+    if (scanQ.status) params.status = scanQ.status
+    if (scanQ.triggered_by) params.triggered_by = scanQ.triggered_by
+    if (scanQ.range) {
+      params.start_time = new Date(scanQ.range[0]).toISOString()
+      params.end_time = new Date(scanQ.range[1] + 86400000 - 1).toISOString()
+    }
+    const res = await api.get('/scan/tasks', { params })
+    scanLogs.value = res.data?.items || []
+    scanTotal.value = res.data?.total || 0
   } catch (e: any) { 
     message.error(e.response?.data?.detail || '加载扫描日志失败')
     scanLogs.value = []
-    scanLogsFiltered.value = []
   } finally {
     loadingScan.value = false
   }
 }
 
-function filterScanLogs() {
-  scanPagination.page = 1
-  let data = scanLogs.value
-  if (scanQ.status) {
-    data = data.filter((r: any) => r.status === scanQ.status)
+async function loadSystemLogs() {
+  loadingSystem.value = true
+  try {
+    const params: any = {
+      page: systemPagination.page,
+      page_size: systemPagination.pageSize,
+    }
+    if (sysQ.action) params.action = sysQ.action
+    if (sysQ.target_type) params.target_type = sysQ.target_type
+    if (sysQ.operator) params.operator = sysQ.operator
+    if (sysQ.range) {
+      params.start_date = new Date(sysQ.range[0]).toISOString()
+      params.end_date = new Date(sysQ.range[1] + 86400000 - 1).toISOString()
+    }
+    const res = await api.get('/logs/system', { params })
+    systemLogs.value = res.data?.items || []
+    systemTotal.value = res.data?.total || 0
+  } catch (e: any) { 
+    message.error(e.response?.data?.detail || '加载系统日志失败')
+    systemLogs.value = []
+  } finally {
+    loadingSystem.value = false
   }
-  if (scanQ.triggered_by) {
-    data = data.filter((r: any) => r.triggered_by === scanQ.triggered_by)
-  }
-  if (scanQ.range) {
-    const start = scanQ.range[0]
-    const end = scanQ.range[1] + 86400000 - 1000
-    data = data.filter((r: any) => {
-      const t = parseUTC(r.created_at)?.getTime()
-      return t != null && t >= start && t <= end
-    })
-  }
-  scanLogsFiltered.value = data
 }
 
-async function cleanupLogs(type: 'login' | 'scan') {
-  const days = parseInt(prompt(`请输入保留天数（删除 ${type === 'login' ? '登录' : '扫描'} 日志中早于此天数的记录）：`, '90') || '0')
+async function cleanupLogs(type: 'login' | 'scan' | 'system') {
+  const typeLabel = type === 'login' ? '登录' : type === 'scan' ? '扫描' : '系统'
+  const days = parseInt(prompt(`请输入保留天数（删除 ${typeLabel} 日志中早于此天数的记录）：`, '90') || '0')
   if (!days || days <= 0) {
     message.warning('请输入有效的天数')
     return
@@ -272,7 +339,8 @@ async function cleanupLogs(type: 'login' | 'scan') {
     const res = await api.post('/logs/cleanup', { type, days })
     message.success(res.data.message || '清理成功')
     if (type === 'login') await loadLoginLogs()
-    else await loadScanLogs()
+    else if (type === 'scan') await loadScanLogs()
+    else await loadSystemLogs()
   } catch (e: any) { 
     message.error(e.response?.data?.detail || '清理失败') 
   } finally { 

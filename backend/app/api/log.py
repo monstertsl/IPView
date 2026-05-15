@@ -1,5 +1,4 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete, and_, func
 from typing import Optional
@@ -8,8 +7,10 @@ from datetime import datetime, timedelta
 from app.core.database import get_db
 from app.core.auth import get_current_user, require_role
 from app.models.log.log_model import LoginLog
+from app.models.log.system_log_model import SystemLog
 from app.models.scan.scan_model import ScanTask
-from app.schemas.log import LoginLogResponse, LoginLogQuery, CleanupRequest, CleanupResponse
+from app.schemas.log import LoginLogResponse, CleanupRequest, CleanupResponse
+from app.schemas.system_log import SystemLogResponse
 
 router = APIRouter(prefix="/api/logs", tags=["日志查询"])
 
@@ -22,7 +23,7 @@ async def list_login_logs(
     start_date: Optional[datetime] = None,
     end_date: Optional[datetime] = None,
     page: int = Query(1, ge=1),
-    page_size: int = Query(10000, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
     current_user=Depends(require_role("admin"))
 ):
@@ -62,6 +63,54 @@ async def list_login_logs(
     return {"total": total, "page": page, "page_size": page_size, "items": [item.model_dump() for item in items]}
 
 
+@router.get("/system")
+async def list_system_logs(
+    action: Optional[str] = None,
+    target_type: Optional[str] = None,
+    operator: Optional[str] = None,
+    start_date: Optional[datetime] = None,
+    end_date: Optional[datetime] = None,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(require_role("admin"))
+):
+    query = select(SystemLog)
+    conditions = []
+    if action:
+        conditions.append(SystemLog.action == action)
+    if target_type:
+        conditions.append(SystemLog.target_type == target_type)
+    if operator:
+        conditions.append(SystemLog.operator == operator)
+    if start_date:
+        conditions.append(SystemLog.created_at >= start_date)
+    if end_date:
+        conditions.append(SystemLog.created_at <= end_date)
+
+    if conditions:
+        query = query.where(and_(*conditions))
+
+    # Count
+    count_query = select(func.count()).select_from(SystemLog)
+    if conditions:
+        count_query = count_query.where(and_(*conditions))
+    total_result = await db.execute(count_query)
+    total = total_result.scalar() or 0
+
+    query = query.order_by(SystemLog.created_at.desc()).offset((page - 1) * page_size).limit(page_size)
+    result = await db.execute(query)
+    logs = result.scalars().all()
+
+    items = [SystemLogResponse(
+        id=str(l.id), action=l.action, target_type=l.target_type,
+        target_id=l.target_id, detail=l.detail,
+        operator=l.operator, ip_address=l.ip_address, created_at=l.created_at
+    ) for l in logs]
+
+    return {"total": total, "page": page, "page_size": page_size, "items": [item.model_dump() for item in items]}
+
+
 @router.post("/cleanup", response_model=CleanupResponse)
 async def cleanup_logs(
     body: CleanupRequest,
@@ -73,6 +122,11 @@ async def cleanup_logs(
     if body.type == "login":
         result = await db.execute(
             delete(LoginLog).where(LoginLog.created_at < cutoff)
+        )
+        deleted = result.rowcount
+    elif body.type == "system":
+        result = await db.execute(
+            delete(SystemLog).where(SystemLog.created_at < cutoff)
         )
         deleted = result.rowcount
     else:
