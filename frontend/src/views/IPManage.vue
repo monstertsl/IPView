@@ -1,36 +1,32 @@
 <template>
   <div class="ip-manage" :class="{ 'light-mode': !isDark }">
     <div class="ip-layout" v-if="selectedSubnet">
-      <!-- Left: Subnet list -->
-      <div class="ip-layout-left">
-        <n-card title="网段列表" size="small" :bordered="false" class="subnet-list-card">
-          <template #header-extra>
-            <n-button text @click="showAddSubnet = true"><n-icon><add-outline /></n-icon></n-button>
-          </template>
-          <n-scrollbar style="height: calc(100vh - 152px);">
-            <n-list hoverable clickable>
-              <n-list-item
-                v-for="sub in subnets"
-                :key="sub.id"
-                :style="{ background: selectedSubnet?.id === sub.id ? 'rgba(24,160,88,0.15)' : '' }"
-                @click="selectSubnet(sub)"
+      <div class="ip-body">
+        <!-- Toolbar: 搜索 IP / MAC / 网段（输入自动补全，选网段可直接切换） -->
+        <div class="ip-toolbar">
+          <n-auto-complete
+            v-model:value="searchQ"
+            :options="searchSuggestions"
+            class="ip-search-input"
+            @select="onSelectSuggestion"
+          >
+            <template #default="{ handleInput, handleBlur, handleFocus, value }">
+              <n-input
+                :value="value"
+                placeholder="搜索 IP / MAC / 网段"
+                clearable
+                @input="handleInput"
+                @focus="handleFocus"
+                @blur="handleBlur"
+                @keyup.enter="handleSearch"
+                @clear="searchResult = null; searchData = null; fuzzySubnets = null"
               >
-                <n-thing :title="sub.cidr" :description="sub.description" />
-              </n-list-item>
-            </n-list>
-          </n-scrollbar>
-        </n-card>
-      </div>
-
-      <!-- Right: IP grid + stats -->
-      <div class="ip-layout-right">
-        <!-- Search -->
-        <n-space style="margin-bottom: 12px">
-          <n-input v-model:value="searchQ" placeholder="搜索 IP / MAC / 网段" clearable style="width: 300px" @keyup.enter="handleSearch" @clear="searchResult = null; searchData = null; fuzzySubnets = null">
-            <template #prefix><n-icon><search-outline /></n-icon></template>
-          </n-input>
+                <template #prefix><n-icon><search-outline /></n-icon></template>
+              </n-input>
+            </template>
+          </n-auto-complete>
           <n-button type="primary" @click="handleSearch">搜索</n-button>
-        </n-space>
+        </div>
 
         <!-- Subnet title + Stats (hide when searching IP/MAC or fuzzy matches) -->
         <div v-if="!searchResult && !fuzzySubnets" class="subnet-stats">
@@ -81,15 +77,16 @@
               </n-button>
             </n-space>
           </div>
-          <div class="ip-grid" v-else-if="!searchResult" :style="{ gridTemplateColumns: `repeat(${gridCols}, 1fr)` }">
+          <div class="ip-grid" v-else-if="!searchResult" ref="gridEl" :style="{ gridTemplateColumns: `repeat(${gridCols}, minmax(0, 1fr))`, fontSize: cellFontSize + 'px' }">
             <div
               v-for="ip in paginatedIPs"
               :key="ip.ip_address"
               class="ip-cell"
               :class="ip.status?.toLowerCase() || 'unused'"
               :style="cellStyle(ip.status)"
-              @mouseenter="showTooltip(ip, $event)"
-              @mouseleave="hideTooltip"
+              @pointerenter="onCellEnter(ip, $event)"
+              @pointerleave="onCellLeave"
+              @click="onCellClick(ip, $event)"
             >
               <span class="ip-text">{{ ip.ip_address.split('.').pop() }}</span>
             </div>
@@ -130,30 +127,12 @@
 
     <!-- No subnet selected -->
     <div v-else style="margin-top: 100px; text-align: center">
-      <n-empty description="暂无网段，请先添加一个网段" />
-      <n-button type="primary" style="margin-top: 16px" @click="showAddSubnet = true">
-        <template #icon><n-icon><add-outline /></n-icon></template>
-        添加网段
+      <n-empty description="暂无网段，扫描任务执行后会自动发现网段" />
+      <n-button style="margin-top: 16px" @click="goScan">
+        <template #icon><n-icon><search-outline /></n-icon></template>
+        前往扫描管理
       </n-button>
     </div>
-
-    <!-- Add subnet modal -->
-    <n-modal v-model:show="showAddSubnet" preset="card" title="添加网段" style="width: 500px">
-      <n-form :model="newSubnet" label-placement="top">
-        <n-form-item label="CIDR" required>
-          <n-input v-model:value="newSubnet.cidr" placeholder="如 10.10.0.0/24" />
-        </n-form-item>
-        <n-form-item label="描述">
-          <n-input v-model:value="newSubnet.description" placeholder="可选描述" />
-        </n-form-item>
-      </n-form>
-      <template #footer>
-        <n-space justify="end">
-          <n-button @click="showAddSubnet = false">取消</n-button>
-          <n-button type="primary" @click="addSubnet">确定</n-button>
-        </n-space>
-      </template>
-    </n-modal>
 
     <!-- Tooltip -->
     <div v-if="tooltipVisible" class="ip-tooltip" :style="[tooltipStyle, tooltipThemeStyle]">
@@ -175,12 +154,13 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
+import { ref, reactive, computed, watch, onMounted, onUnmounted } from 'vue'
 import { useMessage } from 'naive-ui'
 import { h } from 'vue'
 import api from '@/api'
 import type { IPSubnet, IPRecord, IPBulkResponse, IPTooltipData } from '@/types'
-import { SearchOutline, AddOutline } from '@vicons/ionicons5'
+import { useRouter } from 'vue-router'
+import { SearchOutline } from '@vicons/ionicons5'
 import { formatDateTime } from '@/utils/time'
 import { useThemeStore } from '@/stores/theme'
 
@@ -188,13 +168,32 @@ const message = useMessage()
 const themeStore = useThemeStore()
 const isDark = computed(() => themeStore.isDark)
 
-// Dynamic grid columns based on screen width
+// Dynamic grid columns based on container width
 const gridCols = ref(20)
-function updateGridCols() {
-  const width = window.innerWidth - 220 // subtract left sidebar
-  const cols = Math.floor(width / 52)  // ~52px per cell at 14px font
-  gridCols.value = Math.min(22, Math.max(15, cols))
+const gridEl = ref<HTMLElement | null>(null)
+const cellFontSize = ref(14)
+let gridResizeObserver: ResizeObserver | null = null
+
+function updateGrid() {
+  const width = gridEl.value?.clientWidth || Math.max(320, window.innerWidth - 40)
+  // 小屏用更小的目标格宽，保证格子足够大以容纳三位数尾数
+  const targetCell = width < 700 ? 26 : 46
+  const cols = Math.max(8, Math.floor((width + 4) / (targetCell + 4)))
+  gridCols.value = Math.min(32, cols)
+  // 字体随格子实际宽度缩放（桌面上限 18px，避免大格子配小字）
+  const cellW = (width - (gridCols.value - 1) * 4) / gridCols.value
+  cellFontSize.value = Math.max(9, Math.min(18, Math.floor(cellW * 0.5)))
 }
+
+// 网格元素随 v-if 挂载/卸载，挂载后用 ResizeObserver 跟踪实际宽度
+watch(gridEl, (el) => {
+  gridResizeObserver?.disconnect()
+  if (el) {
+    gridResizeObserver = new ResizeObserver(() => updateGrid())
+    gridResizeObserver.observe(el)
+    updateGrid()
+  }
+})
 
 const subnets = ref<IPSubnet[]>([])
 const selectedSubnet = ref<IPSubnet | null>(null)
@@ -247,9 +246,8 @@ const pageSize = ref(256)
 const pageCount = computed(() => Math.ceil(bulkData.value.total / pageSize.value))
 const paginatedIPs = computed(() => bulkData.value.records.slice((page.value - 1) * pageSize.value, page.value * pageSize.value))
 
-// Add subnet
-const showAddSubnet = ref(false)
-const newSubnet = reactive({ cidr: '', description: '' })
+const router = useRouter()
+function goScan() { router.push('/scan') }
 
 // Tooltip
 const tooltipVisible = ref(false)
@@ -268,13 +266,16 @@ const tooltipDividerStyle = computed(() => isDark.value
 )
 
 onMounted(async () => {
-  updateGridCols()
-  window.addEventListener('resize', updateGridCols)
+  updateGrid()
+  window.addEventListener('resize', updateGrid)
+  document.addEventListener('click', onDocClick)
   await loadSubnets()
 })
 
 onUnmounted(() => {
-  window.removeEventListener('resize', updateGridCols)
+  window.removeEventListener('resize', updateGrid)
+  document.removeEventListener('click', onDocClick)
+  gridResizeObserver?.disconnect()
 })
 
 async function loadSubnets() {
@@ -300,17 +301,47 @@ async function selectSubnet(sub: IPSubnet) {
   } catch (e) { message.error('加载 IP 数据失败') }
 }
 
-async function addSubnet() {
-  try {
-    await api.post('/ip/subnets', newSubnet)
-    message.success('网段添加成功')
-    showAddSubnet.value = false
-    newSubnet.cidr = ''
-    newSubnet.description = ''
-    await loadSubnets()
-  } catch (e: any) {
-    message.error(e.response?.data?.detail || '添加失败')
+// 搜索框自动补全：网段 CIDR + 当前网段的 IP / MAC
+// （候选来自已加载的数据，无需额外请求）
+const suggestionSource = computed(() => {
+  const out: { text: string; type: string }[] = []
+  const seen = new Set<string>()
+  const add = (text?: string, type?: string) => {
+    if (!text) return
+    const key = text.toLowerCase()
+    if (seen.has(key)) return
+    seen.add(key)
+    out.push({ text, type })
   }
+  subnets.value.forEach(s => add(s.cidr, '网段'))
+  bulkData.value.records.forEach(r => {
+    add(r.ip_address, 'IP')
+    add(r.mac_address || '', 'MAC')
+  })
+  return out
+})
+
+const searchSuggestions = computed(() => {
+  const q = searchQ.value.trim().toLowerCase()
+  if (!q) return []
+  const starts: { text: string; type: string }[] = []
+  const contains: { text: string; type: string }[] = []
+  for (const item of suggestionSource.value) {
+    const t = item.text.toLowerCase()
+    if (t.startsWith(q)) {
+      starts.push(item)
+      if (starts.length >= 12) break
+    } else if (t.includes(q) && contains.length < 12) {
+      contains.push(item)
+    }
+  }
+  // 前缀匹配的排在前面，其次是包含匹配
+  return [...starts, ...contains].slice(0, 12).map(i => ({ label: `${i.text}  (${i.type})`, value: i.text }))
+})
+
+function onSelectSuggestion(value: string | number) {
+  searchQ.value = String(value)
+  handleSearch()
 }
 
 async function handleSearch() {
@@ -384,32 +415,84 @@ async function prefetchTooltips(records: IPRecord[]) {
   }
 }
 
-function showTooltip(ip: IPRecord, event: MouseEvent) {
-  tooltipIP.value = ip
-  tooltipVisible.value = true
+// 当前「真实可见区域」：移动端页面往往比屏幕宽（可横向滚动/被缩放），
+// window.innerWidth 拿到的是整页布局视口，直接用会让 tooltip 跑到可视区外。
+// visualViewport 给出的是用户此刻真正看到的那块矩形（同坐标系，可直接用）。
+function getVisibleArea() {
+  const vv = window.visualViewport
+  if (vv) {
+    return {
+      left: vv.offsetLeft,
+      top: vv.offsetTop,
+      right: vv.offsetLeft + vv.width,
+      bottom: vv.offsetTop + vv.height,
+    }
+  }
+  return { left: 0, top: 0, right: window.innerWidth, bottom: window.innerHeight }
+}
 
-  // 使用 nextTick 确保 tooltip 已渲染后再计算位置
+function positionTooltip(clientX: number, clientY: number) {
   setTimeout(() => {
     const tooltipEl = document.querySelector('.ip-tooltip') as HTMLElement
     const tooltipWidth = tooltipEl?.offsetWidth || 220
     const tooltipHeight = tooltipEl?.offsetHeight || 150
     const padding = 10
+    const area = getVisibleArea()
 
-    let top = event.clientY + padding
-    let left = event.clientX + padding
+    // 可用区间（始终收在可见区域内部，绝不越界）
+    const minLeft = area.left + padding
+    const maxLeft = Math.max(minLeft, area.right - tooltipWidth - padding)
+    const minTop = area.top + padding
+    const maxTop = Math.max(minTop, area.bottom - tooltipHeight - padding)
 
-    // 检测右边界
-    if (left + tooltipWidth > window.innerWidth) {
-      left = event.clientX - tooltipWidth - padding
+    // 水平：和鼠标一致，优先放在点击点右侧，右侧放不下再翻到左侧
+    let left = clientX + padding
+    if (left + tooltipWidth + padding > area.right) {
+      left = clientX - tooltipWidth - padding
     }
-    // 检测下边界
-    if (top + tooltipHeight > window.innerHeight) {
-      top = event.clientY - tooltipHeight - padding
+    left = Math.min(Math.max(left, minLeft), maxLeft)
+
+    // 垂直：优先放在点击点下方，下方放不下再翻到上方
+    let top = clientY + padding
+    if (top + tooltipHeight + padding > area.bottom) {
+      top = clientY - tooltipHeight - padding
     }
+    top = Math.min(Math.max(top, minTop), maxTop)
 
     tooltipStyle.top = top + 'px'
     tooltipStyle.left = left + 'px'
   }, 0)
+}
+
+// mouse 事件统一走 pointer 事件；touch 的 pointerenter 会被过滤，
+// 触摸屏用户通过 click 显示/切换 tooltip，点击空白处关闭
+function onCellEnter(ip: IPRecord, e: PointerEvent) {
+  if (e.pointerType !== 'mouse') return
+  showTooltip(ip, e.clientX, e.clientY)
+}
+
+function onCellLeave(e: PointerEvent) {
+  // 触摸抬起后也会派发 pointerleave，若此时隐藏会导致 click 刚显示的 tooltip 闪没
+  if (e.pointerType !== 'mouse') return
+  hideTooltip()
+}
+
+function onCellClick(ip: IPRecord, e: MouseEvent) {
+  // 同一 IP 已显示（如鼠标 hover 已展示）则保持不变
+  if (tooltipVisible.value && tooltipIP.value?.ip_address === ip.ip_address) return
+  // 触摸点击与鼠标 hover 使用同一套定位逻辑
+  showTooltip(ip, e.clientX, e.clientY)
+}
+
+function onDocClick(e: MouseEvent) {
+  const target = e.target as Element | null
+  if (!target?.closest?.('.ip-cell')) hideTooltip()
+}
+
+function showTooltip(ip: IPRecord, clientX: number, clientY: number) {
+  tooltipIP.value = ip
+  tooltipVisible.value = true
+  positionTooltip(clientX, clientY)
 
   // Use cached data if available, otherwise lazily fetch in the background
   // and render once it arrives. This covers IPs missed by the bulk prefetch.
@@ -462,36 +545,23 @@ function cellStyle(status?: string) {
 
 <style scoped>
 .ip-layout {
-  display: flex;
-  gap: 16px;
   height: calc(100vh - 96px);
   min-height: 0;
-}
-.ip-layout-left {
-  width: 180px;
-  min-width: 180px;
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-}
-.ip-layout-left .subnet-list-card {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  height: 100%;
-}
-.ip-layout-left :deep(.n-card__content) {
-  flex: 1;
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-}
-.ip-layout-right {
-  flex: 1;
-  min-width: 0;
   overflow-y: auto;
-  height: 100%;
+}
+
+/* Toolbar: 搜索 */
+.ip-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.ip-search-input {
+  flex: 1 1 200px;
+  min-width: 140px;
+  max-width: 320px;
 }
 
 /* IP Grid */
@@ -514,17 +584,28 @@ function cellStyle(status?: string) {
 }
 .ip-cell {
   aspect-ratio: 1;
+  min-width: 0;
+  padding: 0;
   display: flex;
   align-items: center;
   justify-content: center;
   border-radius: 4px;
   cursor: pointer;
-  font-size: 14px;
+  font-size: inherit;
   font-weight: 500;
   transition: all 0.15s;
+  overflow: hidden;
+  -webkit-tap-highlight-color: transparent;
 }
-.ip-cell:hover { transform: scale(1.1); box-shadow: 0 2px 8px rgba(0,0,0,0.3); }
-.ip-text { overflow: hidden; text-overflow: ellipsis; }
+@media (hover: hover) {
+  .ip-cell:hover { transform: scale(1.1); box-shadow: 0 2px 8px rgba(0,0,0,0.3); }
+}
+.ip-text {
+  white-space: nowrap;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 
 /* Tooltip */
 .ip-tooltip {
@@ -533,16 +614,11 @@ function cellStyle(status?: string) {
   border-radius: 8px;
   padding: 12px;
   min-width: 220px;
-  max-width: 360px;
+  max-width: min(360px, calc(100vw - 24px));
   pointer-events: none;
 }
 .tooltip-title { font-weight: 700; margin-bottom: 4px; }
 .tooltip-row { font-size: 12px; margin: 2px 0; }
 .tooltip-divider { font-size: 11px; margin-top: 6px; }
-
-/* Subnet list card */
-.subnet-list-card :deep(.n-card__content) { padding: 0 8px 0 8px; }
-.subnet-list-card :deep(.n-thing-main__header) { font-size: 13px; }
-.subnet-list-card :deep(.n-list-item) { padding-left: 8px; padding-right: 8px; }
 
 </style>
