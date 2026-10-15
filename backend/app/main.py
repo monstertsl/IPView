@@ -12,6 +12,11 @@ from app.api import deps, user, switch, ip, scan, log
 async def lifespan(app: FastAPI):
     # Startup
     await init_db()
+    # 清理上次进程退出时残留的 RUNNING 扫描任务（celery 任务不会跨重启存活，
+    # 不清掉的话日志里会一直显示“运行中”）
+    from app.tasks.scan import fail_interrupted_tasks
+    async with async_session_maker() as db:
+        await fail_interrupted_tasks(db)
     # Create default admin if no users
     from sqlalchemy import select
     from app.models.user.user_model import User

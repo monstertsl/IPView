@@ -16,9 +16,20 @@ from app.schemas.scan import (
 from app.schemas.log import CleanupRequest, CleanupResponse
 from app.schemas.system import SystemConfigResponse, SystemConfigUpdate
 from app.tasks.scan import run_scan_task
-from datetime import datetime
+from datetime import datetime, timezone
 
 router = APIRouter(prefix="/api/scan", tags=["扫描管理"])
+
+
+def _utc_naive(value: str) -> datetime:
+    """把前端传来的 ISO 时间统一成「不带时区的 UTC」。
+
+    scan_tasks.created_at 等列都是 timestamp without time zone，若直接拿带时区
+    （Z / +08:00）的 datetime 去比较，asyncpg 会抛
+    "can't subtract offset-naive and offset-aware datetimes"，接口直接 500。
+    """
+    dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    return dt.astimezone(timezone.utc).replace(tzinfo=None) if dt.tzinfo else dt
 
 
 @router.get("/config", response_model=SystemConfigResponse)
@@ -76,12 +87,12 @@ async def list_tasks(
             pass
     if start_time:
         try:
-            conditions.append(ScanTask.created_at >= datetime.fromisoformat(start_time))
+            conditions.append(ScanTask.created_at >= _utc_naive(start_time))
         except (ValueError, TypeError):
             pass
     if end_time:
         try:
-            conditions.append(ScanTask.created_at <= datetime.fromisoformat(end_time))
+            conditions.append(ScanTask.created_at <= _utc_naive(end_time))
         except (ValueError, TypeError):
             pass
 

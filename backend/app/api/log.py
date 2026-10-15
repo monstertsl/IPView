@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete, and_, func
 from typing import Optional
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from app.core.database import get_db
 from app.core.auth import get_current_user, require_role
@@ -13,6 +13,14 @@ from app.schemas.log import LoginLogResponse, CleanupRequest, CleanupResponse
 from app.schemas.system_log import SystemLogResponse
 
 router = APIRouter(prefix="/api/logs", tags=["日志查询"])
+
+
+def _utc_naive(dt: Optional[datetime]) -> Optional[datetime]:
+    """日志表的 created_at 都是不带时区的 UTC，带时区入参（前端 toISOString 带 Z）
+    必须先归一化，否则 asyncpg 会抛 offset-naive / offset-aware 比较错误。"""
+    if dt is None or dt.tzinfo is None:
+        return dt
+    return dt.astimezone(timezone.utc).replace(tzinfo=None)
 
 
 @router.get("/login")
@@ -36,9 +44,9 @@ async def list_login_logs(
     if ip_address:
         conditions.append(LoginLog.ip_address == ip_address)
     if start_date:
-        conditions.append(LoginLog.created_at >= start_date)
+        conditions.append(LoginLog.created_at >= _utc_naive(start_date))
     if end_date:
-        conditions.append(LoginLog.created_at <= end_date)
+        conditions.append(LoginLog.created_at <= _utc_naive(end_date))
 
     if conditions:
         query = query.where(and_(*conditions))
@@ -84,9 +92,9 @@ async def list_system_logs(
     if operator:
         conditions.append(SystemLog.operator == operator)
     if start_date:
-        conditions.append(SystemLog.created_at >= start_date)
+        conditions.append(SystemLog.created_at >= _utc_naive(start_date))
     if end_date:
-        conditions.append(SystemLog.created_at <= end_date)
+        conditions.append(SystemLog.created_at <= _utc_naive(end_date))
 
     if conditions:
         query = query.where(and_(*conditions))

@@ -23,7 +23,6 @@
             :pagination="loginPagination"
             :loading="loadingLogin"
             :remote="true"
-            :row-count="loginTotal"
             class="log-table"
             @update:page="(p: number) => { loginPagination.page = p; loadLoginLogs() }"
             @update:page-size="(ps: number) => { loginPagination.pageSize = ps; loginPagination.page = 1; loadLoginLogs() }"
@@ -52,7 +51,6 @@
             :loading="loadingScan"
             :pagination="scanPagination"
             :remote="true"
-            :row-count="scanTotal"
             class="log-table"
             @update:page="(p: number) => { scanPagination.page = p; loadScanLogs() }"
             @update:page-size="(ps: number) => { scanPagination.pageSize = ps; scanPagination.page = 1; loadScanLogs() }"
@@ -82,7 +80,6 @@
             :loading="loadingSystem"
             :pagination="systemPagination"
             :remote="true"
-            :row-count="systemTotal"
             class="log-table"
             @update:page="(p: number) => { systemPagination.page = p; loadSystemLogs() }"
             @update:page-size="(ps: number) => { systemPagination.pageSize = ps; systemPagination.page = 1; loadSystemLogs() }"
@@ -110,9 +107,6 @@ const loadingSystem = ref(false)
 const loginLogs = ref<any[]>([])
 const scanLogs = ref<any[]>([])
 const systemLogs = ref<any[]>([])
-const loginTotal = ref(0)
-const scanTotal = ref(0)
-const systemTotal = ref(0)
 
 // Login query
 const loginQ = reactive({
@@ -135,6 +129,7 @@ const scanQ = reactive({
 })
 
 const scanStatusOptions = [
+  { label: '运行中', value: 'RUNNING' },
   { label: '成功', value: 'SUCCESS' },
   { label: '部分成功', value: 'PARTIAL' },
   { label: '失败', value: 'FAILED' },
@@ -167,10 +162,13 @@ const sysTargetOptions = [
 ]
 
 // Pagination
+// 注意：远程分页时总条数必须放在 pagination.itemCount 里，
+// n-data-table 没有 row-count 这个 prop，缺了它分页器只会算出 1 页、翻页按钮点不动。
 function createPagination() {
   return reactive({
     page: 1,
     pageSize: 20,
+    itemCount: 0,
     showSizePicker: true,
     pageSizes: [20, 50, 100],
   })
@@ -269,10 +267,11 @@ async function loadLoginLogs() {
     }
     const res = await api.get('/logs/login', { params })
     loginLogs.value = res.data?.items || []
-    loginTotal.value = res.data?.total || 0
+    loginPagination.itemCount = res.data?.total || 0
   } catch (e: any) { 
     message.error(e.response?.data?.detail || '加载登录日志失败') 
     loginLogs.value = []
+    loginPagination.itemCount = 0
   } finally {
     loadingLogin.value = false
   }
@@ -293,10 +292,11 @@ async function loadScanLogs() {
     }
     const res = await api.get('/scan/tasks', { params })
     scanLogs.value = res.data?.items || []
-    scanTotal.value = res.data?.total || 0
+    scanPagination.itemCount = res.data?.total || 0
   } catch (e: any) { 
     message.error(e.response?.data?.detail || '加载扫描日志失败')
     scanLogs.value = []
+    scanPagination.itemCount = 0
   } finally {
     loadingScan.value = false
   }
@@ -318,10 +318,11 @@ async function loadSystemLogs() {
     }
     const res = await api.get('/logs/system', { params })
     systemLogs.value = res.data?.items || []
-    systemTotal.value = res.data?.total || 0
+    systemPagination.itemCount = res.data?.total || 0
   } catch (e: any) { 
     message.error(e.response?.data?.detail || '加载系统日志失败')
     systemLogs.value = []
+    systemPagination.itemCount = 0
   } finally {
     loadingSystem.value = false
   }
