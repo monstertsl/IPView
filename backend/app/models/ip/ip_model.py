@@ -38,6 +38,8 @@ class IPRecord(Base):
     mac_address: Mapped[str] = mapped_column(String(17), nullable=True, index=True)
     last_seen: Mapped[datetime] = mapped_column(DateTime, nullable=True)
     status: Mapped[IPStatus] = mapped_column(SAEnum(IPStatus), nullable=True)
+    # 用户自定义备注（仅由用户在 IP 管理页维护，扫描任务不会覆盖）
+    remark: Mapped[str] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.utcnow(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, default=lambda: datetime.utcnow(), onupdate=lambda: datetime.utcnow(), nullable=False

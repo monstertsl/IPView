@@ -26,6 +26,12 @@
             </template>
           </n-auto-complete>
           <n-button type="primary" @click="handleSearch">搜索</n-button>
+          <n-button :type="batchMode ? 'warning' : 'default'" @click="toggleBatchMode">
+            {{ batchMode ? '退出批量编辑' : '批量编辑' }}
+          </n-button>
+          <n-button v-if="batchMode && selectedCount > 0" type="primary" @click="openBatchRemarkModal">
+            编辑备注
+          </n-button>
         </div>
 
         <!-- Subnet title + Stats (hide when searching IP/MAC or fuzzy matches) -->
@@ -82,11 +88,11 @@
               v-for="ip in paginatedIPs"
               :key="ip.ip_address"
               class="ip-cell"
-              :class="ip.status?.toLowerCase() || 'unused'"
+              :class="[ip.status?.toLowerCase() || 'unused', { 'batch-mode': batchMode, selected: isSelected(ip) }]"
               :style="cellStyle(ip.status)"
               @pointerenter="onCellEnter(ip, $event)"
               @pointerleave="onCellLeave"
-              @click="onCellClick(ip, $event)"
+              @click="onCellClick(ip)"
             >
               <span class="ip-text">{{ ip.ip_address.split('.').pop() }}</span>
             </div>
@@ -100,6 +106,24 @@
                 <n-descriptions-item label="状态"><n-tag :type="statusType(searchData.record.status)" size="small">{{ searchData.record.status || 'UNUSED' }}</n-tag></n-descriptions-item>
                 <n-descriptions-item label="当前 MAC">{{ searchData.record.mac_address || '无' }}</n-descriptions-item>
                 <n-descriptions-item label="最后发现">{{ formatTime(searchData.record.last_seen) }}</n-descriptions-item>
+                <n-descriptions-item label="备注" :span="2">
+                  <n-input-group class="remark-edit-group">
+                    <n-input
+                      v-model:value="searchRemarkInput"
+                      placeholder="添加备注"
+                      :maxlength="255"
+                      @keyup.enter="searchRemarkDirty && saveSearchRemark()"
+                    />
+                    <n-button
+                      v-if="searchRemarkDirty"
+                      type="primary"
+                      :loading="savingSearchRemark"
+                      @click="saveSearchRemark"
+                    >
+                      保存编辑
+                    </n-button>
+                  </n-input-group>
+                </n-descriptions-item>
               </n-descriptions>
               <n-text strong style="display:block; margin-bottom: 6px;">历史 MAC 记录（最近 5 条）</n-text>
               <n-data-table v-if="ipSearchHistory.length" :columns="ipHistoryColumns" :data="ipSearchHistory" :bordered="false" size="small" />
@@ -142,6 +166,7 @@
       </n-tag>
       <div class="tooltip-row">MAC：{{ tooltipIP?.mac_address || '未知' }}</div>
       <div class="tooltip-row">上次扫描：{{ formatTime(tooltipIP?.last_seen) }}</div>
+      <div class="tooltip-row">备注：{{ tooltipIP?.remark || '无' }}</div>
       <div class="tooltip-divider" :style="tooltipDividerStyle">历史 MAC：</div>
       <div v-if="tooltipHistory.length" v-for="h in tooltipHistory" :key="h.id" class="tooltip-row" :style="{ color: h.isCurrent ? '#18a058' : '' }">
         {{ h.mac }}
@@ -150,6 +175,60 @@
       </div>
       <n-text v-else depth-3 >无历史记录</n-text>
     </div>
+
+    <!-- 单个 IP 编辑（仅备注可编辑） -->
+    <n-modal v-model:show="showEditModal" preset="card" title="IP 详情" style="width: 500px" class="custom-modal">
+      <n-form :model="editForm" label-placement="top">
+        <n-form-item label="IP 地址">
+          <n-input :value="editForm.ip_address" disabled />
+        </n-form-item>
+        <n-form-item label="状态">
+          <n-input :value="editForm.status || 'UNUSED'" disabled />
+        </n-form-item>
+        <n-form-item label="MAC">
+          <n-input :value="editForm.mac_address || '未知'" disabled />
+        </n-form-item>
+        <n-form-item label="上次扫描">
+          <n-input :value="formatTime(editForm.last_seen)" disabled />
+        </n-form-item>
+        <n-form-item label="备注">
+          <n-input
+            v-model:value="editForm.remark"
+            type="textarea"
+            :rows="3"
+            :maxlength="255"
+            placeholder="请输入备注"
+          />
+        </n-form-item>
+      </n-form>
+      <template #footer>
+        <n-space justify="end">
+          <n-button @click="showEditModal = false">取消</n-button>
+          <n-button type="primary" :loading="savingEdit" @click="saveEditRemark">保存</n-button>
+        </n-space>
+      </template>
+    </n-modal>
+
+    <!-- 批量编辑备注 -->
+    <n-modal v-model:show="showBatchRemark" preset="card" title="批量编辑备注" style="width: 500px" class="custom-modal">
+      <n-form label-placement="top">
+        <n-form-item label="备注">
+          <n-input
+            v-model:value="batchRemarkInput"
+            type="textarea"
+            :rows="3"
+            :maxlength="255"
+            :placeholder="`请输入备注（将应用到已选中的 ${selectedCount} 个 IP）`"
+          />
+        </n-form-item>
+      </n-form>
+      <template #footer>
+        <n-space justify="end">
+          <n-button @click="showBatchRemark = false">取消</n-button>
+          <n-button type="primary" :loading="savingBatchRemark" @click="saveBatchRemark">保存</n-button>
+        </n-space>
+      </template>
+    </n-modal>
   </div>
 </template>
 
@@ -301,42 +380,26 @@ async function selectSubnet(sub: IPSubnet) {
   } catch (e) { message.error('加载 IP 数据失败') }
 }
 
-// 搜索框自动补全：网段 CIDR + 当前网段的 IP / MAC
-// （候选来自已加载的数据，无需额外请求）
-const suggestionSource = computed(() => {
-  const out: { text: string; type: string }[] = []
-  const seen = new Set<string>()
-  const add = (text?: string, type?: string) => {
-    if (!text) return
-    const key = text.toLowerCase()
-    if (seen.has(key)) return
-    seen.add(key)
-    out.push({ text, type })
-  }
-  subnets.value.forEach(s => add(s.cidr, '网段'))
-  bulkData.value.records.forEach(r => {
-    add(r.ip_address, 'IP')
-    add(r.mac_address || '', 'MAC')
-  })
-  return out
-})
-
+// 搜索框自动补全：只补全网段 CIDR。
+// 注意：IP / MAC 不做补全 —— 一是没必要，二是 n-auto-complete 在回车/失焦时
+// 会把候选项的 label 回填进输入框，带 "（类型）" 后缀的 label 会污染查询内容。
+// 因此这里的 label 与 value 保持一致，都是干净的 CIDR 文本。
 const searchSuggestions = computed(() => {
   const q = searchQ.value.trim().toLowerCase()
   if (!q) return []
-  const starts: { text: string; type: string }[] = []
-  const contains: { text: string; type: string }[] = []
-  for (const item of suggestionSource.value) {
-    const t = item.text.toLowerCase()
+  const starts: string[] = []
+  const contains: string[] = []
+  for (const s of subnets.value) {
+    const t = s.cidr.toLowerCase()
     if (t.startsWith(q)) {
-      starts.push(item)
+      starts.push(s.cidr)
       if (starts.length >= 12) break
     } else if (t.includes(q) && contains.length < 12) {
-      contains.push(item)
+      contains.push(s.cidr)
     }
   }
   // 前缀匹配的排在前面，其次是包含匹配
-  return [...starts, ...contains].slice(0, 12).map(i => ({ label: `${i.text}  (${i.type})`, value: i.text }))
+  return [...starts, ...contains].slice(0, 12).map(cidr => ({ label: cidr, value: cidr }))
 })
 
 function onSelectSuggestion(value: string | number) {
@@ -345,11 +408,14 @@ function onSelectSuggestion(value: string | number) {
 }
 
 async function handleSearch() {
-  if (!searchQ.value.trim()) { searchResult.value = null; searchData.value = null; fuzzySubnets.value = null; return }
+  // 兼容补全回填可能残留的 "（IP）/(MAC)/(网段)" 后缀，避免把提示文本当成查询内容
+  const cleaned = searchQ.value.replace(/\s*[（(](?:IP|MAC|网段)[）)]\s*$/i, '').trim()
+  if (cleaned !== searchQ.value) searchQ.value = cleaned
+  if (!cleaned) { searchResult.value = null; searchData.value = null; fuzzySubnets.value = null; return }
   // Normalize MAC input: accept ':' / '-' separators in any case, emit the
   // canonical upper-case colon form used by the backend. Non-MAC queries
   // (IP / CIDR) are just trimmed.
-  const raw = searchQ.value.trim()
+  const raw = cleaned
   const macMatch = /^[0-9A-Fa-f]{2}([:\-][0-9A-Fa-f]{2}){5}$/.test(raw)
   const query = macMatch ? raw.replace(/-/g, ':').toUpperCase() : raw
   normalizedQuery.value = query
@@ -465,23 +531,23 @@ function positionTooltip(clientX: number, clientY: number) {
 }
 
 // mouse 事件统一走 pointer 事件；touch 的 pointerenter 会被过滤，
-// 触摸屏用户通过 click 显示/切换 tooltip，点击空白处关闭
+// tooltip 只在鼠标悬停时展示，点击方格改为打开备注编辑窗口
 function onCellEnter(ip: IPRecord, e: PointerEvent) {
+  if (batchMode.value) return
   if (e.pointerType !== 'mouse') return
   showTooltip(ip, e.clientX, e.clientY)
 }
 
-function onCellLeave(e: PointerEvent) {
-  // 触摸抬起后也会派发 pointerleave，若此时隐藏会导致 click 刚显示的 tooltip 闪没
-  if (e.pointerType !== 'mouse') return
+function onCellLeave() {
   hideTooltip()
 }
 
-function onCellClick(ip: IPRecord, e: MouseEvent) {
-  // 同一 IP 已显示（如鼠标 hover 已展示）则保持不变
-  if (tooltipVisible.value && tooltipIP.value?.ip_address === ip.ip_address) return
-  // 触摸点击与鼠标 hover 使用同一套定位逻辑
-  showTooltip(ip, e.clientX, e.clientY)
+function onCellClick(ip: IPRecord) {
+  if (batchMode.value) {
+    toggleSelect(ip)
+    return
+  }
+  openEditModal(ip)
 }
 
 function onDocClick(e: MouseEvent) {
@@ -531,6 +597,121 @@ function showTooltip(ip: IPRecord, clientX: number, clientY: number) {
 function hideTooltip() { tooltipVisible.value = false }
 function statusType(s?: string) { return s === 'ONLINE' ? 'success' : s === 'OFFLINE' ? 'warning' : 'default' }
 function formatTime(t?: string) { return formatDateTime(t, '无记录') }
+
+// ---------- 备注编辑 ----------
+const showEditModal = ref(false)
+const savingEdit = ref(false)
+const editForm = reactive({
+  ip_address: '', status: '', mac_address: '', last_seen: '', remark: '',
+})
+
+// ---------- 批量编辑 ----------
+const batchMode = ref(false)
+const selectedMap = reactive<Record<string, boolean>>({})
+const showBatchRemark = ref(false)
+const savingBatchRemark = ref(false)
+const batchRemarkInput = ref('')
+const selectedCount = computed(() => Object.values(selectedMap).filter(Boolean).length)
+const selectedIPList = computed(() => Object.keys(selectedMap).filter(k => selectedMap[k]))
+
+// ---------- 搜索结果里的备注行 ----------
+const searchRemarkInput = ref('')
+const savingSearchRemark = ref(false)
+const searchRemarkOriginal = computed(() => searchData.value?.record?.remark || '')
+const searchRemarkDirty = computed(() =>
+  searchData.value?.type === 'ip' && searchRemarkInput.value !== searchRemarkOriginal.value
+)
+watch(searchData, (d) => {
+  searchRemarkInput.value = d?.type === 'ip' ? (d.record?.remark || '') : ''
+})
+
+function isSelected(ip: IPRecord) { return !!selectedMap[ip.ip_address] }
+function toggleSelect(ip: IPRecord) { selectedMap[ip.ip_address] = !selectedMap[ip.ip_address] }
+function clearSelection() { Object.keys(selectedMap).forEach(k => delete selectedMap[k]) }
+
+function toggleBatchMode() {
+  batchMode.value = !batchMode.value
+  if (!batchMode.value) clearSelection()
+  else hideTooltip()
+}
+
+// 备注写回本地数据，避免整段网段重新拉取
+function updateLocalRemark(ipAddress: string, remark: string | null, id?: string) {
+  const value = remark || undefined
+  const rec = bulkData.value.records.find(r => r.ip_address === ipAddress)
+  if (rec) {
+    rec.remark = value
+    if (id) rec.id = id
+  }
+  const searchRec = searchData.value?.record
+  if (searchRec?.ip_address === ipAddress) {
+    searchRec.remark = value
+    if (id) searchRec.id = id
+  }
+  const cached = tooltipCache.value[ipAddress]
+  if (cached) cached.remark = value
+  if (tooltipIP.value?.ip_address === ipAddress) tooltipIP.value.remark = value
+}
+
+function openEditModal(ip: IPRecord) {
+  hideTooltip()
+  Object.assign(editForm, {
+    ip_address: ip.ip_address,
+    status: ip.status || 'UNUSED',
+    mac_address: ip.mac_address || '',
+    last_seen: ip.last_seen || '',
+    remark: ip.remark || '',
+  })
+  showEditModal.value = true
+}
+
+async function saveEditRemark() {
+  savingEdit.value = true
+  try {
+    const res = await api.put(`/ip/remark/${editForm.ip_address}`, { remark: editForm.remark })
+    updateLocalRemark(editForm.ip_address, res.data?.remark ?? null, res.data?.id)
+    showEditModal.value = false
+    message.success('备注已保存')
+  } catch (e: any) {
+    message.error(e.response?.data?.detail || '保存失败')
+  } finally { savingEdit.value = false }
+}
+
+function openBatchRemarkModal() {
+  batchRemarkInput.value = ''
+  showBatchRemark.value = true
+}
+
+async function saveBatchRemark() {
+  const ips = [...selectedIPList.value]
+  if (!ips.length) return
+  savingBatchRemark.value = true
+  try {
+    const res = await api.post('/ip/remark/batch', { ip_addresses: ips, remark: batchRemarkInput.value })
+    for (const r of res.data?.records || []) updateLocalRemark(r.ip_address, r.remark ?? null, r.id)
+    showBatchRemark.value = false
+    batchRemarkInput.value = ''
+    clearSelection()
+    batchMode.value = false  // 保存后自动退出批量编辑
+    message.success('备注已保存')
+  } catch (e: any) {
+    message.error(e.response?.data?.detail || '保存失败')
+  } finally { savingBatchRemark.value = false }
+}
+
+async function saveSearchRemark() {
+  const rec = searchData.value?.record
+  if (!rec) return
+  savingSearchRemark.value = true
+  try {
+    const res = await api.put(`/ip/remark/${rec.ip_address}`, { remark: searchRemarkInput.value })
+    updateLocalRemark(rec.ip_address, res.data?.remark ?? null, res.data?.id)
+    searchRemarkInput.value = res.data?.remark || ''
+    message.success('备注已保存')
+  } catch (e: any) {
+    message.error(e.response?.data?.detail || '保存失败')
+  } finally { savingSearchRemark.value = false }
+}
 
 function cellStyle(status?: string) {
   const s = status?.toLowerCase() || 'unused'
@@ -606,6 +787,28 @@ function cellStyle(status?: string) {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
+/* 批量编辑：所有格子缩小一圈，并蒙一层「淡灰色」（半透明灰覆盖，不是压暗成黑色）；
+   选中的格子恢复原大小，并比原本的颜色更亮一点，不加任何描边 */
+.ip-cell.batch-mode {
+  transform: scale(0.85);
+  box-shadow: inset 0 0 0 9999px rgba(110, 110, 110, 0.6);
+}
+.ip-cell.selected {
+  transform: scale(1);
+  box-shadow: none;
+  filter: brightness(1.2);
+}
+/* hover 只调整缩放，不影响灰色蒙版与选中态 */
+@media (hover: hover) {
+  .ip-cell.batch-mode:hover { transform: scale(0.9); }
+  .ip-cell.batch-mode.selected:hover { transform: scale(1); }
+}
+
+/* 搜索结果里的备注编辑行：输入框铺满整行 */
+.remark-edit-group { width: 100%; }
+.remark-edit-group :deep(.n-input) { flex: 1; }
+
 
 /* Tooltip */
 .ip-tooltip {

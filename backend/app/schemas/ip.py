@@ -39,11 +39,28 @@ class IPRecordResponse(BaseModel):
     mac_address: Optional[str] = None
     last_seen: Optional[datetime] = None
     status: Optional[IPStatus] = None
+    remark: Optional[str] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 
     class Config:
         from_attributes = True
+
+
+class IPRemarkUpdate(BaseModel):
+    """单个 IP 备注更新"""
+    remark: Optional[str] = Field(None, max_length=255)
+
+
+class IPRemarkBatchUpdate(BaseModel):
+    """批量 IP 备注更新"""
+    ip_addresses: List[str] = Field(default_factory=list, max_length=1024)
+    remark: Optional[str] = Field(None, max_length=255)
+
+
+class IPRemarkBatchResponse(BaseModel):
+    updated: int
+    records: List[IPRecordResponse]
 
 
 class IPHistoryResponse(BaseModel):
@@ -62,6 +79,7 @@ class IPTooltipData(BaseModel):
     status: str
     current_mac: Optional[str]
     last_seen: Optional[datetime]
+    remark: Optional[str] = None
     history: List[IPHistoryResponse]
 
 

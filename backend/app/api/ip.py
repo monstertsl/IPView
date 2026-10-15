@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, update, delete, and_, func, text, cast
+from sqlalchemy import select, update, delete, and_, func, text, cast, String
 from typing import List, Optional
 import ipaddress
 from datetime import datetime
@@ -14,7 +14,8 @@ from app.models.system.system_model import SystemConfig
 from sqlalchemy.dialects.postgresql import INET, CIDR
 from app.schemas.ip import (
     IPSubnetCreate, IPSubnetResponse,
-    IPRecordResponse, IPHistoryResponse, IPBulkResponse, IPTooltipData
+    IPRecordResponse, IPHistoryResponse, IPBulkResponse, IPTooltipData,
+    IPRemarkUpdate, IPRemarkBatchUpdate, IPRemarkBatchResponse
 )
 
 router = APIRouter(prefix="/api/ip", tags=["IP管理"])
@@ -24,7 +25,8 @@ def _iprecord_to_response(r: IPRecord) -> IPRecordResponse:
     return IPRecordResponse(
         id=str(r.id), ip_address=str(r.ip_address).split('/')[0],
         mac_address=r.mac_address, last_seen=r.last_seen,
-        status=r.status, created_at=r.created_at, updated_at=r.updated_at,
+        status=r.status, remark=r.remark,
+        created_at=r.created_at, updated_at=r.updated_at,
     )
 
 
@@ -154,6 +156,23 @@ async def search_ip(
                 "history": history,
                 "current_mac": record.mac_address,
             }
+        # IP not found in DB（该地址还没被扫描到）→ 若它属于某个已知网段，
+        # 仍然返回一条空记录，让前端能展示状态并直接添加备注。
+        subnet_result = await db.execute(
+            select(IPSubnet).where(cast(IPSubnet.cidr, CIDR).op(">>=")(cast(q, INET)))
+        )
+        owner = subnet_result.scalars().first()
+        if owner:
+            return {
+                "type": "ip",
+                "record": IPRecordResponse(
+                    id="", ip_address=q, mac_address=None, last_seen=None,
+                    status=IPStatus.UNUSED, remark=None,
+                    created_at=None, updated_at=None,
+                ),
+                "history": [],
+                "current_mac": None,
+            }
         # IP not found in DB → fall through to subnet search
     except ValueError:
         pass
@@ -282,8 +301,94 @@ async def get_ip_tooltip(ip_address: str, db: AsyncSession = Depends(get_db), cu
         status=status_str,
         current_mac=record.mac_address,
         last_seen=record.last_seen,
+        remark=record.remark,
         history=history
     )
 
     await RedisSession.cache_ip_data(ip_address, data.model_dump(mode="json"))
     return data
+
+
+async def _get_or_create_record(db: AsyncSession, ip_address: str) -> IPRecord:
+    """按 IP 取记录，不存在则新建一条（备注是用户侧数据，可以脱离扫描先存在）"""
+    result = await db.execute(select(IPRecord).where(IPRecord.ip_address == cast(ip_address, INET)))
+    record = result.scalar_one_or_none()
+    if record is None:
+        record = IPRecord(ip_address=ip_address)
+        db.add(record)
+    return record
+
+
+@router.put("/remark/{ip_address}", response_model=IPRecordResponse)
+async def update_ip_remark(
+    ip_address: str,
+    body: IPRemarkUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user)
+):
+    """设置/清除单个 IP 的备注"""
+    try:
+        ipaddress.ip_address(ip_address)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid IP address")
+
+    remark = (body.remark or "").strip() or None
+    record = await _get_or_create_record(db, ip_address)
+    record.remark = remark
+    await db.commit()
+    await db.refresh(record)
+    # 备注变了，tooltip 缓存立即失效
+    await RedisSession.delete(f"ip:data:{ip_address}")
+    return _iprecord_to_response(record)
+
+
+@router.post("/remark/batch", response_model=IPRemarkBatchResponse)
+async def batch_update_ip_remark(
+    body: IPRemarkBatchUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user)
+):
+    """批量设置/清除一组 IP 的备注（同一个值）"""
+    remark = (body.remark or "").strip() or None
+
+    targets: List[str] = []
+    seen = set()
+    for raw in body.ip_addresses:
+        ip = str(raw).strip()
+        if not ip or ip in seen:
+            continue
+        try:
+            ipaddress.ip_address(ip)
+        except ValueError:
+            continue
+        seen.add(ip)
+        targets.append(ip)
+
+    if not targets:
+        return IPRemarkBatchResponse(updated=0, records=[])
+
+    # INET 列统一按去掉掩码的文本比较，兼容少数带 /xx 存储的历史数据
+    ip_text = func.split_part(cast(IPRecord.ip_address, String), '/', 1)
+    result = await db.execute(select(IPRecord).where(ip_text.in_(targets)))
+    existing = {str(r.ip_address).split('/')[0]: r for r in result.scalars().all()}
+
+    records: List[IPRecord] = []
+    for ip in targets:
+        record = existing.get(ip)
+        if record is None:
+            record = IPRecord(ip_address=ip)
+            db.add(record)
+        record.remark = remark
+        records.append(record)
+
+    await db.commit()
+    for record in records:
+        await db.refresh(record)
+
+    for ip in targets:
+        await RedisSession.delete(f"ip:data:{ip}")
+
+    return IPRemarkBatchResponse(
+        updated=len(records),
+        records=[_iprecord_to_response(r) for r in records],
+    )

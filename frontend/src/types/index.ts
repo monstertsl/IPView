@@ -23,6 +23,7 @@ export interface IPRecord {
   mac_address?: string
   last_seen?: string
   status?: 'ONLINE' | 'OFFLINE' | 'UNUSED'
+  remark?: string
   created_at: string
 }
 
@@ -39,6 +40,7 @@ export interface IPTooltipData {
   status: string
   current_mac?: string
   last_seen?: string
+  remark?: string
   history: IPHistoryRecord[]
 }
 
