@@ -3,10 +3,19 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="preload" as="image" href="/login-background.webp" fetchpriority="high" />
     <title>IPVIEW - IP 地址监控管理系统</title>
     <style>
       * { margin: 0; padding: 0; box-sizing: border-box; }
       html, body, #app { height: 100%; }
+      body {
+        background-color: #32c89a;
+        background-image: url('/login-background.webp');
+        background-position: center;
+        background-size: cover;
+        background-repeat: no-repeat;
+      }
     </style>
   </head>
   <body>

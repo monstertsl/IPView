@@ -3,9 +3,7 @@
     <div class="login-box">
       <div class="login-header">
         <div class="logo">
-          <svg viewBox="0 0 24 24" width="32" height="32" fill="currentColor">
-            <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/>
-          </svg>
+          <img src="/logo.svg" alt="" class="logo-mark" />
           <span class="logo-text">IPVIEW</span>
         </div>
       </div>
@@ -17,7 +15,7 @@
         </h2>
 
         <!-- Step 1: Username -->
-        <div v-if="step === 1" class="step-content">
+        <div v-if="step === 1" class="step-content username-step">
           <div class="form-item">
             <label>用户名</label>
             <n-input 
@@ -39,7 +37,8 @@
             :disabled="!form.username"
             @click="checkUser"
           >
-            下一步
+            <span class="login-action-label">下一步</span>
+            <n-icon size="20"><chevron-forward-outline /></n-icon>
           </n-button>
         </div>
 
@@ -134,12 +133,6 @@
       </div>
     </div>
 
-    <!-- Background decoration -->
-    <div class="bg-decoration">
-      <div class="circle circle-1"></div>
-      <div class="circle circle-2"></div>
-      <div class="circle circle-3"></div>
-    </div>
   </div>
 </template>
 
@@ -148,7 +141,7 @@ import { ref, reactive, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useMessage } from 'naive-ui'
 import { useAuthStore } from '@/stores/auth'
-import { PersonOutline, LockClosedOutline, KeyOutline } from '@vicons/ionicons5'
+import { PersonOutline, LockClosedOutline, KeyOutline, ChevronForwardOutline } from '@vicons/ionicons5'
 import api from '@/api'
 
 const router = useRouter()
@@ -175,7 +168,7 @@ const needTotp = computed(() =>
 )
 
 const stepTitle = computed(() => {
-  if (step.value === 1) return '登录'
+  if (step.value === 1) return '账户登录'
   if (step.value === 2) {
     if (authMode.value === 'TOTP_ONLY') return '验证身份'
     return '输入密码'
@@ -269,27 +262,36 @@ function goBack() {
 <style scoped>
 .login-container {
   min-height: 100vh;
+  box-sizing: border-box;
+  padding: 24px;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: #1a1f2e;
+  font-family: var(--font-sans);
+  background-color: #32c89a;
+  background-image: url('/login-background.webp');
+  background-position: center;
+  background-size: cover;
+  background-repeat: no-repeat;
   position: relative;
   overflow: hidden;
 }
 
 .login-box {
-  width: 420px;
-  background: #242b3d;
+  width: min(420px, 100%);
+  box-sizing: border-box;
+  background: #ffffff;
   border-radius: 8px;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+  box-shadow: 0 16px 44px rgba(6, 32, 22, 0.28);
   z-index: 10;
   overflow: hidden;
 }
 
 .login-header {
-  padding: 24px 32px;
-  background: linear-gradient(135deg, #2d3548 0%, #1e2433 100%);
-  border-bottom: 1px solid #3a4459;
+  display: flex;
+  justify-content: center;
+  padding: 17px 32px 7px;
+  background: #ffffff;
 }
 
 .logo {
@@ -299,19 +301,22 @@ function goBack() {
   color: #10b981;
 }
 
-.logo svg {
-  color: #10b981;
+.logo-mark {
+  width: 52px;
+  height: 32px;
+  object-fit: contain;
 }
 
 .logo-text {
-  font-size: 20px;
+  font-family: var(--font-mono);
+  font-size: 18px;
   font-weight: 600;
   letter-spacing: 2px;
-  color: #fff;
+  color: #000000;
 }
 
 .login-content {
-  padding: 32px;
+  padding: 20px 32px 32px;
 }
 
 .login-title {
@@ -319,9 +324,9 @@ function goBack() {
   align-items: center;
   gap: 12px;
   margin: 0 0 28px;
-  font-size: 20px;
-  font-weight: 500;
-  color: #fff;
+  font-size: 18px;
+  font-weight: 600;
+  color: #1f2937;
 }
 
 .title-bar {
@@ -337,20 +342,24 @@ function goBack() {
   gap: 20px;
 }
 
+.username-step .form-item label {
+  display: none;
+}
+
 .user-info {
   display: flex;
   align-items: center;
   gap: 8px;
   padding: 12px 16px;
-  background: #1a1f2e;
+  background: #f2f5f3;
   border-radius: 6px;
-  color: #a0aec0;
+  color: #64736c;
   font-size: 14px;
 }
 
 .user-info span {
   flex: 1;
-  color: #fff;
+  color: #173a33;
 }
 
 .form-item {
@@ -361,33 +370,43 @@ function goBack() {
 
 .form-item label {
   font-size: 14px;
-  color: #a0aec0;
+  color: #34453d;
 }
 
 .hint-text {
   display: block;
   text-align: center;
+  font-family: var(--font-mono);
   font-size: 12px;
-  color: #64748b;
+  color: #000000;
 }
 
 /* Override naive-ui styles */
 :deep(.n-input) {
-  --n-color: #1a1f2e;
-  --n-color-focus: #1a1f2e;
-  --n-border: 1px solid #3a4459;
+  --n-height: 40px;
+  --n-font-size: 16px;
+  --n-color: #ffffff;
+  --n-color-focus: #ffffff;
+  --n-border: 1px solid #d8e0dc;
   --n-border-hover: 1px solid #10b981;
   --n-border-focus: 1px solid #10b981;
-  --n-text-color: #fff;
-  --n-placeholder-color: #64748b;
+  --n-text-color: #173a33;
+  --n-placeholder-color: #9aa7a1;
   --n-caret-color: #10b981;
 }
 
+.username-step :deep(.n-input) {
+  --n-font-size: 15px;
+}
+
 :deep(.n-input .n-input__prefix) {
-  color: #64748b;
+  color: #9aa7a1;
 }
 
 :deep(.n-button--primary-type) {
+  --n-height: 40px;
+  --n-font-size: 16px;
+  --n-border-radius: 6px;
   --n-color: #10b981;
   --n-color-hover: #059669;
   --n-color-pressed: #047857;
@@ -397,12 +416,12 @@ function goBack() {
 }
 
 :deep(.n-button--primary-type:disabled) {
-  --n-color-disabled: #1e4d3d;
-  --n-text-color-disabled: #64748b;
+  --n-color-disabled: #34a879;
+  --n-text-color-disabled: #ffffff;
 }
 
 :deep(.n-divider) {
-  --n-color: #3a4459;
+  --n-color: #e2e9e5;
 }
 
 :deep(.n-button[text]) {
@@ -417,45 +436,47 @@ function goBack() {
 }
 
 .switch-user-btn:hover {
-  color: #34d399 !important;
+  color: #059669 !important;
 }
 
-/* Background decoration */
-.bg-decoration {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  pointer-events: none;
-  overflow: hidden;
+.login-action-label {
+  margin-right: 8px;
 }
 
-.circle {
-  position: absolute;
-  border-radius: 50%;
-  background: linear-gradient(135deg, rgba(16, 185, 129, 0.1) 0%, rgba(16, 185, 129, 0.02) 100%);
+@media (max-width: 600px) {
+  .login-container {
+    padding: 16px;
+  }
+
+  .login-header {
+    padding: 15px 24px 3px;
+  }
+
+  .logo-mark {
+    width: 48px;
+    height: 29px;
+  }
+
+  .logo-text {
+    font-size: 17px;
+  }
+
+  .login-content {
+    padding: 18px 24px 24px;
+  }
+
+  .login-title {
+    margin-bottom: 24px;
+    font-size: 18px;
+  }
+
+  :deep(.n-input) {
+    --n-height: 46px;
+  }
+
+  :deep(.n-button--primary-type) {
+    --n-height: 46px;
+  }
 }
 
-.circle-1 {
-  width: 600px;
-  height: 600px;
-  top: -200px;
-  right: -200px;
-}
-
-.circle-2 {
-  width: 400px;
-  height: 400px;
-  bottom: -100px;
-  left: -100px;
-}
-
-.circle-3 {
-  width: 300px;
-  height: 300px;
-  top: 50%;
-  left: 10%;
-  transform: translateY(-50%);
-}
 </style>

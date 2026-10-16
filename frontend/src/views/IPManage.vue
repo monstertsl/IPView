@@ -180,16 +180,16 @@
     <n-modal v-model:show="showEditModal" preset="card" title="IP 详情" style="width: 500px" class="custom-modal">
       <n-form :model="editForm" label-placement="top">
         <n-form-item label="IP 地址">
-          <n-input :value="editForm.ip_address" disabled />
+          <n-input :value="editForm.ip_address" class="ip-detail-readonly" disabled />
         </n-form-item>
         <n-form-item label="状态">
-          <n-input :value="editForm.status || 'UNUSED'" disabled />
+          <n-input :value="editForm.status || 'UNUSED'" class="ip-detail-readonly" disabled />
         </n-form-item>
         <n-form-item label="MAC">
-          <n-input :value="editForm.mac_address || '未知'" disabled />
+          <n-input :value="editForm.mac_address || '未知'" class="ip-detail-readonly" disabled />
         </n-form-item>
         <n-form-item label="上次扫描">
-          <n-input :value="formatTime(editForm.last_seen)" disabled />
+          <n-input :value="formatTime(editForm.last_seen)" class="ip-detail-readonly" disabled />
         </n-form-item>
         <n-form-item label="备注">
           <n-input
@@ -788,8 +788,7 @@ function cellStyle(status?: string) {
   text-overflow: ellipsis;
 }
 
-/* 批量编辑：所有格子缩小一圈，并蒙一层「淡灰色」（半透明灰覆盖，不是压暗成黑色）；
-   选中的格子恢复原大小，并比原本的颜色更亮一点，不加任何描边 */
+/* 批量编辑：未选中的格子缩小并蒙灰；选中的格子恢复原大小并提亮 */
 .ip-cell.batch-mode {
   transform: scale(0.85);
   box-shadow: inset 0 0 0 9999px rgba(110, 110, 110, 0.6);
@@ -798,6 +797,7 @@ function cellStyle(status?: string) {
   transform: scale(1);
   box-shadow: none;
   filter: brightness(1.2);
+  border: 2.5px solid #0f172a;
 }
 /* hover 只调整缩放，不影响灰色蒙版与选中态 */
 @media (hover: hover) {
@@ -808,6 +808,11 @@ function cellStyle(status?: string) {
 /* 搜索结果里的备注编辑行：输入框铺满整行 */
 .remark-edit-group { width: 100%; }
 .remark-edit-group :deep(.n-input) { flex: 1; }
+
+:global(html:not(.dark) .ip-detail-readonly .n-input__input-el) {
+  color: #111827 !important;
+  -webkit-text-fill-color: #111827;
+}
 
 
 /* Tooltip */
@@ -820,7 +825,7 @@ function cellStyle(status?: string) {
   max-width: min(360px, calc(100vw - 24px));
   pointer-events: none;
 }
-.tooltip-title { font-weight: 700; margin-bottom: 4px; }
+.tooltip-title { font-family: var(--font-sans); font-weight: 700; margin-bottom: 4px; }
 .tooltip-row { font-size: 12px; margin: 2px 0; }
 .tooltip-divider { font-size: 11px; margin-top: 6px; }
 

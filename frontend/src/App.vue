@@ -13,12 +13,15 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { darkTheme, zhCN, dateZhCN, type GlobalThemeOverrides } from 'naive-ui'
+import { useRoute } from 'vue-router'
 import { useThemeStore } from '@/stores/theme'
 
 const themeStore = useThemeStore()
+const route = useRoute()
+const isLoginRoute = computed(() => route.name === 'Login')
 
 // 根据主题状态返回对应主题
-const currentTheme = computed(() => themeStore.isDark ? darkTheme : null)
+const currentTheme = computed(() => themeStore.isDark && !isLoginRoute.value ? darkTheme : null)
 
 // 浅色主题样式覆盖
 const lightThemeOverrides: GlobalThemeOverrides = {
@@ -182,15 +185,42 @@ const darkThemeOverrides: GlobalThemeOverrides = {
   },
 }
 
-const themeOverrides = computed(() => themeStore.isDark ? darkThemeOverrides : lightThemeOverrides)
+const themeOverrides = computed(() => {
+  const base = themeStore.isDark && !isLoginRoute.value ? darkThemeOverrides : lightThemeOverrides
+  return {
+    ...base,
+    common: {
+      ...base.common,
+      fontFamily: isLoginRoute.value ? 'var(--font-sans)' : 'var(--font-mono)',
+    },
+  }
+})
 </script>
 
 <style>
 /* Global styles */
+:root {
+  --font-sans: "HarmonyOS Sans SC", "PingFang SC", "Microsoft YaHei", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", "Fira Code", "Cascadia Code", "Consolas", "HarmonyOS Sans SC", "PingFang SC", "Microsoft YaHei", monospace;
+}
+
 body {
   margin: 0;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  font-family: var(--font-mono);
   transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+.font-sans {
+  font-family: var(--font-sans);
+}
+
+.font-mono {
+  font-family: var(--font-mono);
+  font-feature-settings: "tnum";
+}
+
+:where(b, strong, h1, h2, h3, h4, h5, h6, .n-text--strong) {
+  font-family: var(--font-sans);
 }
 
 /* 浅色主题默认背景 */
