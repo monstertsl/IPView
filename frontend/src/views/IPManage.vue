@@ -809,9 +809,16 @@ function cellStyle(status?: string) {
 .remark-edit-group { width: 100%; }
 .remark-edit-group :deep(.n-input) { flex: 1; }
 
-:global(html:not(.dark) .ip-detail-readonly .n-input__input-el) {
+:global(html:not(.dark) .ip-detail-readonly),
+:global(html:not(.dark) .ip-detail-readonly.n-input--disabled) {
+  opacity: 1 !important;
+}
+
+:global(html:not(.dark) .ip-detail-readonly .n-input__input-el),
+:global(html:not(.dark) .ip-detail-readonly .n-input__input-el:disabled) {
   color: #111827 !important;
-  -webkit-text-fill-color: #111827;
+  -webkit-text-fill-color: #111827 !important;
+  opacity: 1 !important;
 }
 
 
